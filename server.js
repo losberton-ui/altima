@@ -325,7 +325,7 @@ function handleEnemyDeath(activeRoom, enemyId, owner, killerWeapon = null) {
   } else if (deadType === 'boss_hammer') {
     const bpId = 'bp_' + (++activeRoom.scrapIdCounter);
     activeRoom.scrap[bpId] = { id: bpId, type: 'blueprint', blueprintType: 'bp10', x: enemy.x, z: enemy.z, quantity: 1 };
-    for (let k = 0; k < 8; k++) {
+    for (let k = 0; k < 15; k++) {
       const wpId = 'wp_' + (++activeRoom.scrapIdCounter);
       activeRoom.scrap[wpId] = {
         id: wpId,
@@ -338,7 +338,7 @@ function handleEnemyDeath(activeRoom, enemyId, owner, killerWeapon = null) {
   } else if (deadType === 'boss_swarm') {
     const bpId = 'bp_' + (++activeRoom.scrapIdCounter);
     activeRoom.scrap[bpId] = { id: bpId, type: 'blueprint', blueprintType: 'bp20', x: enemy.x, z: enemy.z, quantity: 1 };
-    for (let k = 0; k < 12; k++) {
+    for (let k = 0; k < 20; k++) {
       const wpId = 'wp_' + (++activeRoom.scrapIdCounter);
       activeRoom.scrap[wpId] = {
         id: wpId,
