@@ -2063,11 +2063,8 @@ function init3D() {
   camera.position.set(0, 18, 12);
   camera.lookAt(0, 0, 0);
 
-  renderer = new THREE.WebGLRenderer({ antialias: !isTouchDevice });
-  
-  // Cap pixel ratio on mobile to prevent GPU overload in landscape
-  const pixelRatio = isTouchDevice ? Math.min(window.devicePixelRatio || 1, 1.5) : (window.devicePixelRatio || 1);
-  renderer.setPixelRatio(pixelRatio);
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
   
   renderer.setSize(width, height);
   renderer.shadowMap.enabled = true;
@@ -2083,9 +2080,8 @@ function init3D() {
   dirLight.position.set(20, 40, 20);
   dirLight.castShadow = true;
   
-  // Reduce shadow map resolution on mobile
-  dirLight.shadow.mapSize.width = isTouchDevice ? 1024 : 2048;
-  dirLight.shadow.mapSize.height = isTouchDevice ? 1024 : 2048;
+  dirLight.shadow.mapSize.width = 2048;
+  dirLight.shadow.mapSize.height = 2048;
   dirLight.shadow.camera.near = 0.5;
   dirLight.shadow.camera.far = 100;
   const d = 25;
@@ -2476,7 +2472,11 @@ function animate() {
       const drawX = localPlayerState.x - Math.sin(localPlayerState.angle) * recoilOffset;
       const drawZ = localPlayerState.z - Math.cos(localPlayerState.angle) * recoilOffset;
 
-      myMesh.position.set(drawX, yOffset, drawZ);
+      // Smooth interpolation to hide client-prediction snapping (jitter)
+      myMesh.position.x += (drawX - myMesh.position.x) * 0.4;
+      myMesh.position.z += (drawZ - myMesh.position.z) * 0.4;
+      myMesh.position.y = yOffset;
+      
       myMesh.rotation.y = localPlayerState.angle;
       
       if (myMesh.userData.leftLeg) {
