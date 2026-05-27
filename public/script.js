@@ -188,16 +188,29 @@ const GameAudio = {
     scrapNormal: 'audio/zapchast_1.mp3',
     scrapGood: 'audio/zapchast_xoroshaya.mp3'
   },
+  pools: {},
+  lastPlayed: {},
+
   init() {
     this.bgm.loop = true;
     this.bgm.volume = 0.5;
     
+    // Create Audio Pools for performance (especially mobile)
+    for (let key in this.sounds) {
+      this.pools[key] = [];
+      this.lastPlayed[key] = 0;
+      // Preload 5 instances per sound
+      for (let i = 0; i < 5; i++) {
+        const a = new Audio(this.sounds[key]);
+        a.preload = 'auto';
+        this.pools[key].push(a);
+      }
+    }
+    
     document.addEventListener('click', (e) => {
-      // Play click sound on buttons
       if (e.target.closest('button') || e.target.closest('.btn') || e.target.closest('.weapon-btn')) {
         this.playClick();
       }
-      // Start BGM on first interaction if in lobby
       if (!isGameActive && this.bgm.paused) {
         this.bgm.play().catch(() => {});
       }
@@ -209,10 +222,25 @@ const GameAudio = {
     s.play().catch(() => {});
   },
   playSound(name, vol = 0.8) {
-    if (!this.sounds[name]) return;
-    const s = new Audio(this.sounds[name]);
-    s.volume = vol;
-    s.play().catch(() => {});
+    if (!this.pools[name]) return;
+    
+    const now = Date.now();
+    // Throttle overlapping sounds (e.g. shotgun hitting 10 mobs at once)
+    if (now - this.lastPlayed[name] < 50) return;
+    this.lastPlayed[name] = now;
+
+    const pool = this.pools[name];
+    let audio = pool.find(a => a.paused || a.ended);
+    
+    if (!audio) {
+      // Force reuse oldest audio if pool is full
+      audio = pool[0];
+      pool.push(pool.shift());
+    }
+    
+    audio.volume = vol;
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
   },
   stopBgm() {
     this.bgm.pause();
