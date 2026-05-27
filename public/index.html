@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ALTIMA: Survival</title>
+  <!-- Google Fonts for Gothic/Dark aesthetics -->
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <!-- Load Socket.io and Three.js -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+  <!-- Background overlay effect -->
+  <div class="dark-bg-overlay"></div>
+
+  <!-- LOBBY OVERLAY -->
+  <div id="lobby-container" class="overlay-panel">
+    <div class="lobby-card">
+      <div class="title-container">
+        <h1 class="classic-title">ALTIMA: SURVIVAL</h1>
+        <p class="subtitle">MULTIPLAYER 3D CO-OP ARENA</p>
+      </div>
+
+      <!-- STEP 1: Enter Nickname -->
+      <div id="nickname-step" class="lobby-step active">
+        <div class="input-group">
+          <label for="nickname-input">ВВЕДИТЕ ПОЗЫВНОЙ</label>
+          <input type="text" id="nickname-input" placeholder="OPERATOR_CODE" maxlength="12" autocomplete="off">
+        </div>
+        <button id="next-to-lobby-btn" class="btn primary-btn">ПОДКЛЮЧИТЬСЯ</button>
+      </div>
+
+      <!-- STEP 2: Main Lobby Action -->
+      <div id="action-step" class="lobby-step">
+        <div class="nickname-display">
+          ОПЕРАТОР: <span id="current-nickname" class="accent-text">GUEST</span>
+        </div>
+        
+        <div class="lobby-actions">
+          <button id="create-room-btn" class="btn primary-btn highlight-btn">СОЗДАТЬ СЕКТОР</button>
+          
+          <div class="divider">
+            <span>ИЛИ ВСТУПИТЬ</span>
+          </div>
+          
+          <div class="join-input-group">
+            <input type="text" id="room-code-input" placeholder="КОД СЕКТОРА" maxlength="4" autocomplete="off">
+            <button id="join-room-btn" class="btn secondary-btn">ВСТУПИТЬ</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEP 3: Waiting Room -->
+      <div id="waiting-step" class="lobby-step">
+        <div class="sector-code-box">
+          <span class="label">КОД СЕКТОРА</span>
+          <span id="display-room-code" class="code-value">----</span>
+          <button id="copy-code-btn" class="mini-btn" title="Копировать код">КОПИРОВАТЬ</button>
+        </div>
+
+        <div class="players-list-container">
+          <h3>АКТИВНЫЕ ОПЕРАТОРЫ (макс 2)</h3>
+          <div id="players-list">
+            <!-- Player tags will be added here -->
+            <div class="player-slot empty">Ожидание подключения...</div>
+            <div class="player-slot empty">Ожидание подключения...</div>
+          </div>
+        </div>
+
+        <div class="waiting-actions">
+          <button id="start-game-btn" class="btn success-btn hidden">ЗАПУСТИТЬ МИССИЮ</button>
+          <div id="guest-waiting-msg" class="waiting-message hidden">
+            <span class="loader-dots">СИНХРОНИЗАЦИЯ С ХОСТОМ<span>.</span><span>.</span><span>.</span></span>
+          </div>
+          <button id="leave-room-btn" class="btn danger-btn">ВЫЙТИ ИЗ ЛОББИ</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECONNECTION / LOSS OF SIGNAL BANNER -->
+  <div id="reconnect-banner" class="hidden">
+    <div class="reconnect-content">
+      <div class="warning-icon">⚠️</div>
+      <div class="warning-text">
+        <h3>СВЯЗЬ ПОТЕРЯНА</h3>
+        <p>Попытка восстановления сигнала... <span id="reconnect-timer">30</span>с</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- GAME CONTAINER (Viewport) -->
+  <div id="game-container" class="hidden">
+    <!-- Viewport for Three.js -->
+    <div id="game-canvas"></div>
+
+    <!-- HUD OVERLAY -->
+    <div id="hud-container">
+      <!-- TOP HUD: Round info, scores, stats -->
+      <div class="hud-top">
+        <div class="hud-box score-box">
+          <span class="hud-label">СЧЁТ</span>
+          <span id="hud-score" class="hud-value hud-blue">00000</span>
+        </div>
+
+        <div class="hud-box round-box">
+          <span id="hud-round-label" class="hud-label">РАУНД</span>
+          <span id="hud-round" class="hud-value hud-red">1/50</span>
+          <div id="hud-timer" class="hud-timer hidden">15</div>
+        </div>
+
+        <div class="hud-box combo-box hidden" id="hud-combo-wrapper">
+          <span id="hud-combo-text" class="combo-text">X3 COMBO</span>
+        </div>
+      </div>
+
+      <!-- CENTER NOTIFICATION (e.g. Round Announcement) -->
+      <div id="announcement-overlay" class="hidden">
+        <h2 id="announcement-title" class="pulse-text-classic">РАУНД НАЧАТ</h2>
+        <p id="announcement-subtitle">Уничтожьте врагов</p>
+      </div>
+
+      <!-- BOTTOM HUD: Health and weapons -->
+      <div class="hud-bottom">
+        <!-- Local Player HP & Status -->
+        <div class="player-status-card local-player-card">
+          <div class="player-name" id="hud-local-name">ОПЕРАТОР 1</div>
+          <div class="hp-bar-container">
+            <div id="hud-local-hp-fill" class="hp-bar-fill" style="width: 100%;"></div>
+            <span id="hud-local-hp-text" class="hp-text">100/100</span>
+          </div>
+          <div class="weapon-status">
+            <div class="weapon-header-row">
+              <span id="hud-local-weapon">ПИСТОЛЕТ</span>
+              <div class="inventory-status-row">
+                <span id="hud-local-scrap-hud" class="scrap-label">⚙️ 0/60</span>
+                <span id="hud-local-wp-hud" class="wp-label">🔧 0/25</span>
+                <span id="hud-local-bp10-hud" class="bp-label" style="margin-right: 4px;">📜A 0</span>
+                <span id="hud-local-bp20-hud" class="bp-label" style="margin-right: 4px;">📜B 0</span>
+                <span id="hud-local-bp30-hud" class="bp-label">📜C 0</span>
+                <span id="hud-local-syringe-hud" class="syringe-label hidden">💉 0</span>
+              </div>
+            </div>
+            <div class="weapon-gauge-container">
+              <div id="hud-local-weapon-gauge" class="weapon-gauge-fill" style="width: 0%;"></div>
+            </div>
+            <div class="weapon-selector-row">
+              <button id="select-pistol" class="weapon-btn active" title="Клавиша 1: Пистолет"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M4,17 L7,17 L7,12 L19,12 L19,8 L4,8 Z"/></svg></button>
+              <button id="select-shotgun" class="weapon-btn locked" disabled title="Скрафтите Дробовик (Клавиша 2)"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2,14 L20,14 L20,10 L7,10 L7,12 L2,12 Z"/></svg></button>
+              <button id="select-ar" class="weapon-btn locked" disabled title="Скрафтите Автомат (Клавиша 3)"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2,15 L6,15 L6,13 L20,13 L20,9 L10,9 L10,7 L6,7 L6,9 L2,9 Z"/></svg></button>
+              <button id="select-sniper" class="weapon-btn locked" disabled title="Скрафтите Снайперку (Клавиша 4)"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M0,13 L22,13 L22,11 L10,11 L10,9 L6,9 L6,11 L0,11 Z"/></svg></button>
+              <button id="select-hmg" class="weapon-btn locked" disabled title="Скрафтите Пулемет (Клавиша 5)"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2,15 L8,15 L8,13 L22,13 L22,7 L8,7 L8,9 L2,9 Z"/></svg></button>
+              <button id="select-flamethrower" class="weapon-btn locked" disabled title="Скрафтите Огнемет (Клавиша 6)"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2,15 L6,15 L6,13 L18,13 L18,11 L22,11 L22,9 L18,9 L18,11 L6,11 L6,9 L2,9 Z"/></svg></button>
+              <button id="select-tesla" class="weapon-btn locked" disabled title="Скрафтите Теслу (Клавиша 7)"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M4,14 L8,14 L8,12 L16,12 L16,8 L12,8 L12,10 L4,10 Z"/></svg></button>
+              <button id="select-crossbow" class="weapon-btn locked" disabled title="Скрафтите Арбалет (Клавиша 8)"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2,12 L20,12 M18,8 L22,12 L18,16 M10,6 L10,18 M8,8 L12,12 L8,16" stroke="currentColor" stroke-width="2" fill="none"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Workbench Context Button -->
+        <div id="workbench-hud-hint" class="hud-center-action hidden">
+          <div class="action-hint-badge">[E]</div>
+          <div class="action-hint-text">ОТКРЫТЬ ВЕРСТАК</div>
+        </div>
+
+        <!-- Teammate HP & Status -->
+        <div class="player-status-card remote-player-card hidden" id="hud-remote-card">
+          <div class="player-name" id="hud-remote-name">ОПЕРАТОР 2</div>
+          <div class="hp-bar-container">
+            <div id="hud-remote-hp-fill" class="hp-bar-fill remote-fill" style="width: 100%;"></div>
+            <span id="hud-remote-hp-text" class="hp-text">100/100</span>
+          </div>
+          <div class="weapon-status">
+            <div class="weapon-header-row" style="flex-direction: row-reverse;">
+              <span id="hud-remote-weapon" class="gray-text">ОЖИДАНИЕ...</span>
+              <div class="inventory-status-row" style="flex-direction: row-reverse; gap: 8px;">
+                <span id="hud-remote-scrap-hud" class="scrap-label">⚙️ 0/60</span>
+                <span id="hud-remote-wp-hud" class="wp-label">🔧 0/25</span>
+                <span id="hud-remote-bp10-hud" class="bp-label">📜A 0</span>
+                <span id="hud-remote-bp20-hud" class="bp-label">📜B 0</span>
+                <span id="hud-remote-bp30-hud" class="bp-label">📜C 0</span>
+              </div>
+            </div>
+            <div class="weapon-gauge-container">
+              <div id="hud-remote-weapon-gauge" class="weapon-gauge-fill remote-fill" style="width: 0%;"></div>
+            </div>
+          </div>
+          <div id="hud-remote-disconnect-tag" class="disconnect-tag hidden">ДИСКОННЕКТ</div>
+        </div>
+      </div>
+
+      <!-- WORKBENCH RADIAL/GRID MENU OVERLAY -->
+      <div id="workbench-modal" class="workbench-overlay hidden">
+        <div class="workbench-card">
+          <div class="workbench-header">
+            <h2><span class="accent-text">ВЕРСТАК СЕКТОРА</span></h2>
+            <button id="close-workbench-btn" class="close-modal-btn">&times;</button>
+          </div>
+          <div class="workbench-body">
+            <div class="scrap-display-row">
+              <div class="scrap-stat">
+                <span class="label">ВАШ СКЛАД</span>
+                <div class="inventory-status-row" style="margin-top: 4px;">
+                  <span id="wb-local-scrap" class="value text-blue" style="font-size: 1.1rem; margin-right: 6px;">⚙️ 0/60</span>
+                  <span id="wb-local-wp" class="value text-blue" style="font-size: 1.1rem; margin-right: 6px;">🔧 0/25</span>
+                  <span id="wb-local-bp10" class="value text-blue" style="font-size: 1.1rem; margin-right: 6px;">📜A 0</span>
+                  <span id="wb-local-bp20" class="value text-blue" style="font-size: 1.1rem; margin-right: 6px;">📜B 0</span>
+                  <span id="wb-local-bp30" class="value text-blue" style="font-size: 1.1rem;">📜C 0</span>
+                </div>
+              </div>
+              <div class="scrap-stat">
+                <span class="label">СКЛАД НАПАРНИКА</span>
+                <div class="inventory-status-row" style="margin-top: 4px;">
+                  <span id="wb-remote-scrap" class="value text-green" style="font-size: 1.1rem; margin-right: 6px;">⚙️ 0/60</span>
+                  <span id="wb-remote-wp" class="value text-green" style="font-size: 1.1rem; margin-right: 6px;">🔧 0/25</span>
+                  <span id="wb-remote-bp10" class="value text-green" style="font-size: 1.1rem; margin-right: 6px;">📜A 0</span>
+                  <span id="wb-remote-bp20" class="value text-green" style="font-size: 1.1rem; margin-right: 6px;">📜B 0</span>
+                  <span id="wb-remote-bp30" class="value text-green" style="font-size: 1.1rem;">📜C 0</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="crafting-grid">
+              <div class="craft-item-card" id="craft-shotgun-card">
+                <div class="item-header">ДРОБОВИК</div>
+                <p>Ближний бой. Убойная дробь 8x6 в конусе 40°. Сильно отбрасывает.</p>
+                <div class="item-cost">⚙️ 15 SCRAP</div>
+                <button id="craft-shotgun-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
+              </div>
+              <div class="craft-item-card" id="craft-ar-card">
+                <div class="item-header">АВТОМАТ</div>
+                <p>Универсальный темп (8/с), урон 7. Перегревается через 4.5с зажима.</p>
+                <div class="item-cost">⚙️ 20 SCRAP</div>
+                <button id="craft-ar-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
+              </div>
+              <div class="craft-item-card" id="craft-sniper-card">
+                <div class="item-header">СНАЙПЕРКА</div>
+                <p>Высокий урон (80), пробивает до 3 целей. Замедляет при прицеливании.</p>
+                <div class="item-cost">🔧 10 WP + 📜A 1</div>
+                <button id="craft-sniper-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
+              </div>
+              <div class="craft-item-card" id="craft-hmg-card">
+                <div class="item-header">ПУЛЕМЕТ</div>
+                <p>Огромный темп (14/с), урон 6. Сильно замедляет при стрельбе.</p>
+                <div class="item-cost">🔧 15 WP + 📜A 1</div>
+                <button id="craft-hmg-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
+              </div>
+              <div class="craft-item-card" id="craft-flamethrower-card">
+                <div class="item-header">ОГНЕМЕТ</div>
+                <p>Выжигает сектор 30°, урон горением до 3х стаков. Тратит энерго-ячейки.</p>
+                <div class="item-cost">🔧 12 WP + 📜A 1 + 📜B 1</div>
+                <button id="craft-flamethrower-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
+              </div>
+              <div class="craft-item-card" id="craft-tesla-card">
+                <div class="item-header">ТЕСЛА-ВИНТОВКА</div>
+                <p>Цепная молния поражает до 3 целей, накладывая оглушение 0.5с.</p>
+                <div class="item-cost">🔧 15 WP + 📜A 1 + 📜B 1</div>
+                <button id="craft-tesla-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
+              </div>
+              <div class="craft-item-card" id="craft-crossbow-card">
+                <div class="item-header">АРБАЛЕТ</div>
+                <p>Выпускает тактические стрелы, оставляющие токсичные лужи (6 урона/с).</p>
+                <div class="item-cost">🔧 10 WP + 📜A 1 + 📜B 1</div>
+                <button id="craft-crossbow-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
+              </div>
+            </div>
+
+            <div class="divider">
+              <span>ПЕРЕДАТЬ РЕСУРСЫ НАПАРНИКУ</span>
+            </div>
+
+            <p class="limit-warning">Предельный лимит: 50% собранного хлама за раунд</p>
+            <div class="transfer-actions">
+              <button id="transfer-5-btn" class="btn secondary-btn">⚙️ ОТДАТЬ 5</button>
+              <button id="transfer-15-btn" class="btn secondary-btn">⚙️ ОТДАТЬ 15</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DOWNED / REVIVAL STATE OVERLAY -->
+      <div id="downed-overlay" class="hidden">
+        <div class="downed-content">
+          <h1 class="blink-text-classic">ОПЕРАТОР РАНЕН</h1>
+          <p class="bleedout-msg">ИСТЕКАНИЕ КРОВЬЮ: <span id="downed-bleed-timer">20.0</span>с</p>
+          <div id="downed-revive-progress-container" class="hidden">
+            <p id="downed-revive-action-text">ВАС РЕАНИМИРУЮТ...</p>
+            <div class="revive-bar-bg">
+              <div id="downed-revive-bar-fill" style="width: 0%;"></div>
+            </div>
+          </div>
+          <p class="downed-tip">Ждите помощи напарника или автоматической реанимации</p>
+        </div>
+      </div>
+
+      <!-- REVIVING TEAMMATE PROGRESS BAR -->
+      <div id="reviving-teammate-overlay" class="hidden">
+        <div class="reviving-teammate-content">
+          <p class="reviving-text">РЕАНИМАЦИЯ НАПАРНИКА...</p>
+          <div class="revive-bar-bg">
+            <div id="reviving-teammate-bar-fill" style="width: 0%;"></div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- MOBILE TOUCH CONTROLS (Joysticks) -->
+      <div id="mobile-controls" class="hidden">
+        <div id="joystick-left-zone" class="joystick-zone">
+          <div class="joystick-ring">
+            <div class="joystick-handle" id="joystick-left-handle"></div>
+          </div>
+        </div>
+        <div id="joystick-right-zone" class="joystick-zone">
+          <div class="joystick-ring">
+            <div class="joystick-handle" id="joystick-right-handle"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GAME OVER / RESULTS PANEL -->
+  <div id="game-over-container" class="overlay-panel hidden">
+    <div class="lobby-card results-card">
+      <h1 id="results-title" class="classic-title crimson-text">МИССИЯ ПРОВАЛЕНА</h1>
+      <p id="results-subtitle" class="subtitle">ОПЕРАЦИЯ ALTIMA ЗАВЕРШЕНА</p>
+
+      <div class="stats-table">
+        <div class="stat-row">
+          <span>ДОСТИГНУТЫЙ РАУНД</span>
+          <span id="stat-round" class="accent-text">0</span>
+        </div>
+        <div class="stat-row">
+          <span>НАБРАННЫЕ ОЧКИ</span>
+          <span id="stat-score" class="accent-text">0</span>
+        </div>
+        <div class="stats-players-grid">
+          <div class="player-stat-col" id="stat-p1-col">
+            <h4 id="stat-p1-name">ИГРОК 1</h4>
+            <p>Урон: <span id="stat-p1-damage" class="hud-blue">0</span></p>
+            <p>Убийств: <span id="stat-p1-kills" class="hud-blue">0</span></p>
+            <p>Воскрешений: <span id="stat-p1-revives" class="hud-blue">0</span></p>
+          </div>
+          <div class="player-stat-col hidden" id="stat-p2-col">
+            <h4 id="stat-p2-name">ИГРОК 2</h4>
+            <p>Урон: <span id="stat-p2-damage" class="hud-green">0</span></p>
+            <p>Убийств: <span id="stat-p2-kills" class="hud-green">0</span></p>
+            <p>Воскрешений: <span id="stat-p2-revives" class="hud-green">0</span></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="results-actions">
+        <button id="restart-game-btn" class="btn primary-btn highlight-btn">НАЧАТЬ ЗАНОВО</button>
+        <button id="back-to-lobby-btn" class="btn secondary-btn">В ЛОББИ</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
