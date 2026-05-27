@@ -1092,8 +1092,19 @@ function setupSocket() {
         });
       }
 
-      localPlayerState.x = predX;
-      localPlayerState.z = predZ;
+      const errorX = predX - localPlayerState.x;
+      const errorZ = predZ - localPlayerState.z;
+      const errorDist = Math.hypot(errorX, errorZ);
+
+      if (errorDist > 0.8) {
+        // Hard snap if deviation is huge (e.g. hit a crate/wall on server)
+        localPlayerState.x = predX;
+        localPlayerState.z = predZ;
+      } else {
+        // Gently drift towards server prediction to prevent long-term desync, but avoid micro-snaps
+        localPlayerState.x += errorX * 0.1;
+        localPlayerState.z += errorZ * 0.1;
+      }
     }
 
     // 2. Process remote player position update
