@@ -3599,8 +3599,14 @@ function adjustCamera() {
     }
   }
 
-  const baseHeight = 16;
-  const baseDepth = 11;
+  let baseHeight = 16;
+  let baseDepth = 11;
+
+  if (isTouchDevice && window.innerWidth > window.innerHeight) {
+    // Zoom in a bit on mobile landscape to compensate for the reduced physical screen height
+    baseHeight = 13;
+    baseDepth = 9;
+  }
 
   const targetCamPos = new THREE.Vector3(
     midX,
