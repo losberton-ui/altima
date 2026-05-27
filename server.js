@@ -496,6 +496,7 @@ function startGameLoop(roomCode) {
           activeRoom.roundTimer = 30.0; // 30 seconds round timer
           activeRoom.bullets = [];
           activeRoom.projectiles = [];
+          activeRoom.scrap = {}; // Clear scrap at the START of the new wave, giving players the whole intermission to collect it
           
           playerIds.forEach(pId => {
             const p = activeRoom.players[pId];
@@ -787,7 +788,6 @@ function startGameLoop(roomCode) {
           activeRoom.projectiles = [];
           activeRoom.puddles = [];
           activeRoom.firePuddles = [];
-          activeRoom.scrap = {}; // Clear all scrap from the floor
 
           // Recover all players to full HP and revive if downed
           playerIds.forEach(pId => {
