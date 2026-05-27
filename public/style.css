@@ -1355,3 +1355,45 @@ input[type="text"]:focus {
   50% { opacity: 0.3; }
 }
 
+/* Landscape Mobile Optimizations */
+@media screen and (max-height: 500px) {
+  .hud-top {
+    transform: scale(0.75);
+    transform-origin: top center;
+    padding-top: 10px;
+  }
+  .hud-bottom {
+    transform: scale(0.75);
+    transform-origin: bottom center;
+    bottom: 10px;
+  }
+  .player-card {
+    padding: 6px 10px;
+  }
+  .hud-box {
+    padding: 6px 12px;
+  }
+  .hud-label {
+    font-size: 0.65rem;
+  }
+  .hud-value {
+    font-size: 1.1rem;
+  }
+  .joystick-zone {
+    width: 130px;
+    height: 130px;
+    bottom: 5px;
+  }
+  #joystick-left-zone {
+    left: 5px;
+  }
+  #joystick-right-zone {
+    right: 5px;
+  }
+  /* Scale workbench */
+  .workbench-modal {
+    transform: translate(-50%, -50%) scale(0.75);
+    max-height: 100vh;
+    overflow-y: auto;
+  }
+}

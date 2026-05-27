@@ -186,7 +186,11 @@ window.addEventListener('DOMContentLoaded', () => {
     if (isTouchDevice) {
       const docElm = document.documentElement;
       if (docElm.requestFullscreen) {
-        docElm.requestFullscreen().catch(() => {});
+        docElm.requestFullscreen().then(() => {
+          if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(() => {});
+          }
+        }).catch(() => {});
       } else if (docElm.webkitRequestFullScreen) {
         docElm.webkitRequestFullScreen();
       }
@@ -2059,7 +2063,12 @@ function init3D() {
   camera.position.set(0, 18, 12);
   camera.lookAt(0, 0, 0);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer = new THREE.WebGLRenderer({ antialias: !isTouchDevice });
+  
+  // Cap pixel ratio on mobile to prevent GPU overload in landscape
+  const pixelRatio = isTouchDevice ? Math.min(window.devicePixelRatio || 1, 1.5) : (window.devicePixelRatio || 1);
+  renderer.setPixelRatio(pixelRatio);
+  
   renderer.setSize(width, height);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -2073,8 +2082,10 @@ function init3D() {
   const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
   dirLight.position.set(20, 40, 20);
   dirLight.castShadow = true;
-  dirLight.shadow.mapSize.width = 2048;
-  dirLight.shadow.mapSize.height = 2048;
+  
+  // Reduce shadow map resolution on mobile
+  dirLight.shadow.mapSize.width = isTouchDevice ? 1024 : 2048;
+  dirLight.shadow.mapSize.height = isTouchDevice ? 1024 : 2048;
   dirLight.shadow.camera.near = 0.5;
   dirLight.shadow.camera.far = 100;
   const d = 25;
