@@ -1950,8 +1950,12 @@ function setupMobileJoysticks() {
     const handleY = Math.sin(angle) * dragDist;
     leftHandle.style.transform = `translate(${handleX}px, ${handleY}px)`;
 
-    joystickLeft.xInput = Math.cos(angle) * (dragDist / maxDrag);
-    joystickLeft.zInput = Math.sin(angle) * (dragDist / maxDrag);
+    // Outer deadzone: lock to 1.0 if pushed > 80% to prevent micro-stutters in walking speed
+    let inputMagnitude = dragDist / maxDrag;
+    if (inputMagnitude > 0.8) inputMagnitude = 1.0;
+
+    joystickLeft.xInput = Math.cos(angle) * inputMagnitude;
+    joystickLeft.zInput = Math.sin(angle) * inputMagnitude;
   });
 
   const handleLeftEnd = () => {
@@ -2472,9 +2476,9 @@ function animate() {
       const drawX = localPlayerState.x - Math.sin(localPlayerState.angle) * recoilOffset;
       const drawZ = localPlayerState.z - Math.cos(localPlayerState.angle) * recoilOffset;
 
-      // Smooth interpolation to hide client-prediction snapping (jitter)
-      myMesh.position.x += (drawX - myMesh.position.x) * 0.4;
-      myMesh.position.z += (drawZ - myMesh.position.z) * 0.4;
+      // Extremely smooth interpolation to completely hide client-prediction snapping
+      myMesh.position.x += (drawX - myMesh.position.x) * 0.15;
+      myMesh.position.z += (drawZ - myMesh.position.z) * 0.15;
       myMesh.position.y = yOffset;
       
       myMesh.rotation.y = localPlayerState.angle;
