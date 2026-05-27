@@ -187,6 +187,8 @@ const backToLobbyBtn = document.getElementById('back-to-lobby-btn');
 const GameAudio = {
   bgm: new Audio('audio/main_menu_1.mp3'),
   menuClick: new Audio('audio/menu_click.mp3'),
+  ctx: null,
+  buffers: {},
   sounds: {
     pistol: 'audio/pistol_shot.mp3',
     shotgun: 'audio/shotgun.mp3',
@@ -194,26 +196,31 @@ const GameAudio = {
     scrapNormal: 'audio/zapchast_1.mp3',
     scrapGood: 'audio/zapchast_xoroshaya.mp3'
   },
-  pools: {},
   lastPlayed: {},
 
   init() {
     this.bgm.loop = true;
     this.bgm.volume = 0.5;
     
-    // Create Audio Pools for performance (especially mobile)
-    for (let key in this.sounds) {
-      this.pools[key] = [];
-      this.lastPlayed[key] = 0;
-      // Preload 5 instances per sound
-      for (let i = 0; i < 5; i++) {
-        const a = new Audio(this.sounds[key]);
-        a.preload = 'auto';
-        this.pools[key].push(a);
+    // Initialize Web Audio API for zero-latency mobile performance
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) {
+      this.ctx = new AudioContext();
+      for (let key in this.sounds) {
+        this.lastPlayed[key] = 0;
+        fetch(this.sounds[key])
+          .then(res => res.arrayBuffer())
+          .then(data => this.ctx.decodeAudioData(data))
+          .then(buffer => { this.buffers[key] = buffer; })
+          .catch(e => console.error("Audio decode error for", key));
       }
     }
     
     document.addEventListener('click', (e) => {
+      // Unlock AudioContext on iOS/Android
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
       if (e.target.closest('button') || e.target.closest('.btn') || e.target.closest('.weapon-btn')) {
         this.playClick();
       }
@@ -228,25 +235,22 @@ const GameAudio = {
     s.play().catch(() => {});
   },
   playSound(name, vol = 0.8) {
-    if (!this.pools[name]) return;
+    if (!this.ctx || !this.buffers[name]) return;
     
     const now = Date.now();
-    // Throttle overlapping sounds (e.g. shotgun hitting 10 mobs at once)
+    // Throttle overlapping sounds
     if (now - this.lastPlayed[name] < 50) return;
     this.lastPlayed[name] = now;
 
-    const pool = this.pools[name];
-    let audio = pool.find(a => a.paused || a.ended);
+    const source = this.ctx.createBufferSource();
+    source.buffer = this.buffers[name];
     
-    if (!audio) {
-      // Force reuse oldest audio if pool is full
-      audio = pool[0];
-      pool.push(pool.shift());
-    }
+    const gainNode = this.ctx.createGain();
+    gainNode.gain.value = vol;
     
-    audio.volume = vol;
-    audio.currentTime = 0;
-    audio.play().catch(() => {});
+    source.connect(gainNode);
+    gainNode.connect(this.ctx.destination);
+    source.start(0);
   },
   stopBgm() {
     this.bgm.pause();
@@ -2536,48 +2540,48 @@ function spawnPlayerMesh(playerId, isLocal) {
   playersMeshes[playerId] = playerGroup;
 }
 
-// Helper to spawn floating text sprites
+// Helper to spawn floating text using HTML DOM for high performance
 function spawnFloatingText(text, x, y, z, colorHex = '#ff0055') {
-  if (!scene) return;
-  const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 64;
-  const ctx = canvas.getContext('2d');
-  ctx.font = 'bold 36px "Roboto", sans-serif';
-  ctx.fillStyle = colorHex;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 4;
-  ctx.strokeText(text, 64, 32);
-  ctx.fillText(text, 64, 32);
+  if (!scene || !camera || !renderer) return;
+  
+  const pos = new THREE.Vector3(x, y, z);
+  pos.project(camera);
+  
+  // Don't show if behind camera
+  if (pos.z > 1) return;
 
-  const texture = new THREE.CanvasTexture(canvas);
-  const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
-  const sprite = new THREE.Sprite(spriteMat);
-  sprite.position.set(x, y, z);
-  sprite.scale.set(1.5, 0.75, 1);
-  scene.add(sprite);
+  const rect = renderer.domElement.getBoundingClientRect();
+  const screenX = rect.left + (pos.x * 0.5 + 0.5) * rect.width;
+  const screenY = rect.top + -(pos.y * 0.5 - 0.5) * rect.height;
 
-  const startTime = Date.now();
-  const duration = 800;
-  const animateSprite = () => {
-    if (!scene) return;
-    const elapsed = Date.now() - startTime;
-    if (elapsed >= duration) {
-      scene.remove(sprite);
-      texture.dispose();
-      spriteMat.dispose();
-    } else {
-      const progress = elapsed / duration;
-      // Parabolic arc for damage numbers
-      sprite.position.y = y + Math.sin(progress * Math.PI) * 1.5;
-      sprite.position.x = x + (progress * 0.5);
-      spriteMat.opacity = 1.0 - progress;
-      requestAnimationFrame(animateSprite);
-    }
-  };
-  animateSprite();
+  const div = document.createElement('div');
+  div.textContent = text;
+  div.style.position = 'absolute';
+  div.style.left = screenX + 'px';
+  div.style.top = screenY + 'px';
+  div.style.color = colorHex;
+  div.style.fontWeight = '900';
+  div.style.fontSize = '24px';
+  div.style.fontFamily = '"Roboto", sans-serif';
+  div.style.textShadow = '2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000';
+  div.style.pointerEvents = 'none';
+  div.style.zIndex = '1000';
+  div.style.transform = 'translate(-50%, -50%)';
+  div.style.transition = 'top 0.8s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.8s ease-in';
+  div.style.opacity = '1';
+  
+  document.body.appendChild(div);
+
+  // Trigger CSS transition next frame
+  requestAnimationFrame(() => {
+    div.style.top = (screenY - 80) + 'px';
+    div.style.opacity = '0';
+  });
+
+  setTimeout(() => {
+    if(document.body.contains(div)) div.remove();
+  }, 800);
+
 }
 
 function onWindowResize() {
