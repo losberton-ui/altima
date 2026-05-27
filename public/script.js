@@ -215,6 +215,9 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   // Workbench listeners
+  workbenchHudHint.addEventListener('click', () => {
+    workbenchModal.classList.toggle('hidden');
+  });
   closeWorkbenchBtn.addEventListener('click', () => {
     workbenchModal.classList.add('hidden');
   });
@@ -401,6 +404,8 @@ function setupSocket() {
       }
       remotePlayerState = null;
       hudRemoteCard.classList.add('hidden');
+      document.getElementById('remote-weapon-info-row').classList.add('hidden');
+      document.getElementById('remote-inventory-row').classList.add('hidden');
       alert('Напарник покинул сектор.');
     }
   });
@@ -461,6 +466,8 @@ function setupSocket() {
     for (const id in playerList) {
       if (id !== myPlayerId) {
         hudRemoteCard.classList.remove('hidden');
+        document.getElementById('remote-weapon-info-row').classList.remove('hidden');
+        document.getElementById('remote-inventory-row').classList.remove('hidden');
         hudRemoteName.textContent = playerList[id].nickname.toUpperCase();
       }
     }
@@ -973,8 +980,9 @@ function setupSocket() {
       localPlayerState.isCrafting = serverMe.isCrafting;
 
       // Update local HUD HP bar
-      hudLocalHpFill.style.width = `${Math.max(0, serverMe.hp)}%`;
-      hudLocalHpText.textContent = `${Math.max(0, serverMe.hp)}/${serverMe.maxHp}`;
+      const displayHp = Math.round(Math.max(0, serverMe.hp));
+      hudLocalHpFill.style.width = `${(displayHp / serverMe.maxHp) * 100}%`;
+      hudLocalHpText.textContent = `${displayHp}/${serverMe.maxHp}`;
       
       if (serverMe.hp > 50) {
         hudLocalHpFill.style.background = 'linear-gradient(90deg, #0055ff, #00bbff)';
@@ -1113,8 +1121,11 @@ function setupSocket() {
         const sPlayer = state.players[pId];
         
         hudRemoteCard.classList.remove('hidden');
-        hudRemoteHpFill.style.width = `${Math.max(0, sPlayer.hp)}%`;
-        hudRemoteHpText.textContent = `${Math.max(0, sPlayer.hp)}/${sPlayer.maxHp}`;
+        document.getElementById('remote-weapon-info-row').classList.remove('hidden');
+        document.getElementById('remote-inventory-row').classList.remove('hidden');
+        const displayHp = Math.round(Math.max(0, sPlayer.hp));
+        hudRemoteHpFill.style.width = `${(displayHp / sPlayer.maxHp) * 100}%`;
+        hudRemoteHpText.textContent = `${displayHp}/${sPlayer.maxHp}`;
         
         if (sPlayer.hp > 50) {
           hudRemoteHpFill.style.background = 'linear-gradient(90deg, #00ffaa, #00e5ff)';
