@@ -21,7 +21,6 @@
     <div class="lobby-card">
       <div class="title-container">
         <h1 class="classic-title">ALTIMA: SURVIVAL</h1>
-        <p class="subtitle">MULTIPLAYER 3D CO-OP ARENA</p>
       </div>
 
       <!-- STEP 1: Enter Nickname -->
@@ -50,6 +49,8 @@
             <input type="text" id="room-code-input" placeholder="КОД СЕКТОРА" maxlength="4" autocomplete="off">
             <button id="join-room-btn" class="btn secondary-btn">ВСТУПИТЬ</button>
           </div>
+          
+          <button id="how-to-play-btn" class="btn text-btn" style="margin-top: 25px; text-decoration: underline; background: transparent; border: none; color: #888; cursor: pointer; font-family: 'Cinzel', serif; font-size: 1.1rem; letter-spacing: 2px;">КАК ИГРАТЬ / СПРАВКА</button>
         </div>
       </div>
 
@@ -78,6 +79,42 @@
           <button id="leave-room-btn" class="btn danger-btn">ВЫЙТИ ИЗ ЛОББИ</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- HOW TO PLAY MODAL -->
+  <div id="how-to-play-modal" class="overlay-panel hidden">
+    <div class="lobby-card scrollable-card" style="max-height: 80vh; overflow-y: auto; text-align: left;">
+      <div class="title-container">
+        <h2 class="classic-title" style="font-size: 1.8rem; margin-bottom: 20px;">БРИФИНГ ОПЕРАТОРА</h2>
+      </div>
+      <div class="tutorial-content" style="color: #ccc; font-family: 'Roboto', sans-serif; font-size: 1rem; line-height: 1.5;">
+        <h3 style="color: #fff; margin-top: 0;">ЦЕЛЬ МИССИИ</h3>
+        <p style="margin-bottom: 15px;">Выживайте как можно дольше, отбиваясь от волн мутантов. С каждой волной врагов становится больше, и они сильнее. Кооперируйтесь с напарником!</p>
+        
+        <h3 style="color: #fff;">РЕСУРСЫ И КРАФТ</h3>
+        <p style="margin-bottom: 10px;">Центр арены — это ваш <strong>Верстак</strong>. Подойдите к центру карты, чтобы открыть возможность собирать мощное оружие. Ресурсы:</p>
+        <ul style="margin-bottom: 15px; padding-left: 20px;">
+          <li style="margin-bottom: 5px;"><strong>Хлам (Scrap):</strong> Маленькие черные квадраты. Выпадают из обычных зомби.</li>
+          <li style="margin-bottom: 5px;"><strong>Оружейные детали (Ящики):</strong> Каждые 5 волн (5, 10, 15...) появляются Ящики Снабжения. Разбейте их, чтобы получить желтые детали.</li>
+          <li style="margin-bottom: 5px;"><strong>Чертежи (Blueprints):</strong> Боссы гарантированно оставляют Чертежи (светящиеся карточки). Чертёж 10-й волны падает на 10 волне, чертёж 20-й волны — на 20-й.</li>
+        </ul>
+
+        <h3 style="color: #fff;">ОРУЖЕЙНЫЕ ТИРЫ</h3>
+        <ul style="margin-bottom: 15px; padding-left: 20px;">
+          <li style="margin-bottom: 5px;"><strong>Базовое:</strong> Пистолет (бесконечные патроны).</li>
+          <li style="margin-bottom: 5px;"><strong>За Хлам:</strong> Дробовик (15), Автомат (20).</li>
+          <li style="margin-bottom: 5px;"><strong>Продвинутое (+ Детали и Чертеж 10):</strong> Снайперская винтовка, Пулемет (HMG).</li>
+          <li style="margin-bottom: 5px;"><strong>Топовое (+ Чертеж 20):</strong> Огнемет, Пушка Тесла, Арбалет.</li>
+        </ul>
+        
+        <h3 style="color: #fff;">УПРАВЛЕНИЕ</h3>
+        <p style="margin-bottom: 0;">
+          <strong>ПК:</strong> WASD (Движение), Мышь (Прицел), ЛКМ (Огонь).<br>
+          <strong>Мобайл:</strong> Левый стик (Движение), Правый стик (Прицел и Автоогонь).
+        </p>
+      </div>
+      <button id="close-tutorial-btn" class="btn primary-btn" style="margin-top: 25px; width: 100%;">ПОНЯТНО</button>
     </div>
   </div>
 

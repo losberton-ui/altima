@@ -50,6 +50,8 @@ let cratesMeshes = {};
 let puddleMeshes = {};
 let firePuddleMeshes = {};
 let flameParticles = [];
+let bloodParticles = [];
+let gibParticles = [];
 let activeVFX = [];
 
 // Stage 6 Barrels and combo
@@ -93,6 +95,10 @@ const reconnectBanner = document.getElementById('reconnect-banner');
 const reconnectTimer = document.getElementById('reconnect-timer');
 const gameContainer = document.getElementById('game-container');
 const gameCanvas = document.getElementById('game-canvas');
+
+const howToPlayBtn = document.getElementById('how-to-play-btn');
+const howToPlayModal = document.getElementById('how-to-play-modal');
+const closeTutorialBtn = document.getElementById('close-tutorial-btn');
 
 // HUD DOM Elements
 const hudLocalName = document.getElementById('hud-local-name');
@@ -171,8 +177,52 @@ const statP2Revives = document.getElementById('stat-p2-revives');
 const restartGameBtn = document.getElementById('restart-game-btn');
 const backToLobbyBtn = document.getElementById('back-to-lobby-btn');
 
+// --- Audio Manager ---
+const GameAudio = {
+  bgm: new Audio('audio/main_menu_1.mp3'),
+  menuClick: new Audio('audio/menu_click.mp3'),
+  sounds: {
+    pistol: 'audio/pistol_shot.mp3',
+    shotgun: 'audio/shotgun.mp3',
+    hit: 'audio/shot_on_mob.mp3',
+    scrapNormal: 'audio/zapchast_1.mp3',
+    scrapGood: 'audio/zapchast_xoroshaya.mp3'
+  },
+  init() {
+    this.bgm.loop = true;
+    this.bgm.volume = 0.5;
+    
+    document.addEventListener('click', (e) => {
+      // Play click sound on buttons
+      if (e.target.closest('button') || e.target.closest('.btn') || e.target.closest('.weapon-btn')) {
+        this.playClick();
+      }
+      // Start BGM on first interaction if in lobby
+      if (!isGameActive && this.bgm.paused) {
+        this.bgm.play().catch(() => {});
+      }
+    });
+  },
+  playClick() {
+    const s = this.menuClick.cloneNode();
+    s.volume = 0.8;
+    s.play().catch(() => {});
+  },
+  playSound(name, vol = 0.8) {
+    if (!this.sounds[name]) return;
+    const s = new Audio(this.sounds[name]);
+    s.volume = vol;
+    s.play().catch(() => {});
+  },
+  stopBgm() {
+    this.bgm.pause();
+    this.bgm.currentTime = 0;
+  }
+};
+
 // Initialize App
 window.addEventListener('DOMContentLoaded', () => {
+  GameAudio.init();
   const savedNick = localStorage.getItem('altima_nickname');
   if (savedNick) {
     nicknameInput.value = savedNick;
@@ -203,7 +253,6 @@ window.addEventListener('DOMContentLoaded', () => {
   copyCodeBtn.addEventListener('click', copyRoomCode);
   startGameBtn.addEventListener('click', () => { goFullscreen(); startGame(); });
   leaveRoomBtn.addEventListener('click', leaveRoom);
-  
   restartGameBtn.addEventListener('click', () => {
     gameOverContainer.classList.add('hidden');
     socket.emit('start-game');
@@ -212,6 +261,13 @@ window.addEventListener('DOMContentLoaded', () => {
   backToLobbyBtn.addEventListener('click', () => {
     gameOverContainer.classList.add('hidden');
     leaveRoom();
+  });
+
+  howToPlayBtn.addEventListener('click', () => {
+    howToPlayModal.classList.remove('hidden');
+  });
+  closeTutorialBtn.addEventListener('click', () => {
+    howToPlayModal.classList.add('hidden');
   });
 
   // Workbench listeners
@@ -458,6 +514,7 @@ function setupSocket() {
 
   socket.on('game-started', () => {
     isGameActive = true;
+    GameAudio.stopBgm();
     lobbyContainer.classList.add('hidden');
     gameContainer.classList.remove('hidden');
     
@@ -482,6 +539,9 @@ function setupSocket() {
     } else {
       remoteLastShotTime = Date.now();
     }
+    
+    if (data.weapon === 'pistol') GameAudio.playSound('pistol', 0.4);
+    else if (data.weapon === 'shotgun') GameAudio.playSound('shotgun', 0.5);
     
     if (scene && data.weapon !== 'flamethrower' && data.weapon !== 'tesla' && data.weapon !== 'crossbow') {
        // Calculate exact barrel position
@@ -553,9 +613,48 @@ function setupSocket() {
   });
 
   socket.on('enemy-hit', (data) => {
+    GameAudio.playSound('hit', 0.3);
     const mesh = enemiesMeshes[data.enemyId];
     if (mesh) {
       mesh.userData.flashEndTime = Date.now() + 100;
+      
+      // Spawn Blood Particles
+      if (scene) {
+        let pMesh = playersMeshes[myPlayerId];
+        let angleX = (Math.random() - 0.5) * 2;
+        let angleZ = (Math.random() - 0.5) * 2;
+        if (pMesh) {
+          const dx = data.x - pMesh.position.x;
+          const dz = data.z - pMesh.position.z;
+          const dist = Math.hypot(dx, dz);
+          if (dist > 0.1) {
+            angleX = dx / dist + (Math.random() - 0.5) * 0.5;
+            angleZ = dz / dist + (Math.random() - 0.5) * 0.5;
+          }
+        }
+        
+        for(let i=0; i<8; i++) {
+          const bGeo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
+          const bMat = new THREE.MeshBasicMaterial({ color: 0x770000 });
+          const bMesh = new THREE.Mesh(bGeo, bMat);
+          
+          bMesh.position.set(
+            data.x + (Math.random()-0.5)*0.3, 
+            0.5 + Math.random()*0.3, 
+            data.z + (Math.random()-0.5)*0.3
+          );
+          scene.add(bMesh);
+          
+          bloodParticles.push({
+            mesh: bMesh,
+            vx: angleX * (0.5 + Math.random() * 1.5),
+            vz: angleZ * (0.5 + Math.random() * 1.5),
+            vy: 1.0 + Math.random() * 1.5,
+            endTime: Date.now() + 1500,
+            duration: 1500
+          });
+        }
+      }
     }
     spawnFloatingText(Math.round(data.damage).toString(), data.x, 1.2, data.z, '#ff0055');
   });
@@ -563,10 +662,67 @@ function setupSocket() {
   socket.on('enemy-killed', (data) => {
     const mesh = enemiesMeshes[data.enemyId];
     if (mesh) {
-      mesh.userData.isDying = true;
-      mesh.userData.deathTime = Date.now();
-      if (mesh.material) {
-        mesh.material.transparent = true;
+      if (data.weapon === 'shotgun') {
+        mesh.visible = false;
+        mesh.userData.isDying = true;
+        
+        // Spawn Gibs
+        if (scene) {
+          let angleX = 0;
+          let angleZ = 0;
+          if (data.ownerX !== null && data.ownerZ !== null) {
+            const dx = data.x - data.ownerX;
+            const dz = data.z - data.ownerZ;
+            const dist = Math.hypot(dx, dz);
+            if (dist > 0.1) {
+              angleX = dx / dist;
+              angleZ = dz / dist;
+            }
+          }
+          
+          for(let i=0; i<6; i++) {
+            const gGeo = new THREE.DodecahedronGeometry(0.1 + Math.random() * 0.1);
+            const gMat = new THREE.MeshBasicMaterial({ color: 0x550000 });
+            const gMesh = new THREE.Mesh(gGeo, gMat);
+            gMesh.position.set(
+              data.x + (Math.random()-0.5)*0.5, 
+              0.5 + Math.random()*0.5, 
+              data.z + (Math.random()-0.5)*0.5
+            );
+            scene.add(gMesh);
+            gibParticles.push({
+              mesh: gMesh,
+              vx: angleX * (3 + Math.random() * 5) + (Math.random() - 0.5) * 2,
+              vz: angleZ * (3 + Math.random() * 5) + (Math.random() - 0.5) * 2,
+              vy: 2 + Math.random() * 4,
+              endTime: Date.now() + 5000,
+              duration: 5000
+            });
+          }
+          
+          // Extra blood for shotgun
+          for(let i=0; i<15; i++) {
+             const bGeo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+             const bMat = new THREE.MeshBasicMaterial({ color: 0x770000 });
+             const bMesh = new THREE.Mesh(bGeo, bMat);
+             bMesh.position.set(data.x, 0.5, data.z);
+             scene.add(bMesh);
+             bloodParticles.push({
+               mesh: bMesh,
+               vx: angleX * 2 + (Math.random()-0.5)*4,
+               vz: angleZ * 2 + (Math.random()-0.5)*4,
+               vy: 1 + Math.random()*3,
+               endTime: Date.now() + 2000,
+               duration: 2000
+             });
+          }
+        }
+      } else {
+        mesh.userData.isDying = true;
+        mesh.userData.deathTime = Date.now();
+        if (mesh.material) {
+          mesh.material.transparent = true;
+        }
       }
     }
     spawnFloatingText('+10', data.x, 1.2, data.z, '#00ffc8');
@@ -574,6 +730,12 @@ function setupSocket() {
 
   // Scrap magnet and trade hooks
   socket.on('scrap-picked', (data) => {
+    if (data.type === 'wp' || data.type === 'blueprint') {
+      GameAudio.playSound('scrapGood', 0.6);
+    } else {
+      GameAudio.playSound('scrapNormal', 0.6);
+    }
+    
     if (data.playerId === myPlayerId) {
       // Spawn small visual confirmation text
       const myMesh = playersMeshes[myPlayerId];
@@ -1840,10 +2002,10 @@ function handleKeyDown(e) {
   const key = e.key.toLowerCase();
   
   // Movement keys
-  if (key === 'w' || key === 'arrowup') keys.w = true;
-  if (key === 'a' || key === 'arrowleft') keys.a = true;
-  if (key === 's' || key === 'arrowdown') keys.s = true;
-  if (key === 'd' || key === 'arrowright') keys.d = true;
+  if (key === 'w') keys.w = true;
+  if (key === 'a') keys.a = true;
+  if (key === 's') keys.s = true;
+  if (key === 'd') keys.d = true;
 
   // Weapon Hotkeys (1-8)
   if (key === '1') {
@@ -1894,10 +2056,10 @@ function handleKeyDown(e) {
 function handleKeyUp(e) {
   if (!isGameActive) return;
   const key = e.key.toLowerCase();
-  if (key === 'w' || key === 'arrowup') keys.w = false;
-  if (key === 'a' || key === 'arrowleft') keys.a = false;
-  if (key === 's' || key === 'arrowdown') keys.s = false;
-  if (key === 'd' || key === 'arrowright') keys.d = false;
+  if (key === 'w') keys.w = false;
+  if (key === 'a') keys.a = false;
+  if (key === 's') keys.s = false;
+  if (key === 'd') keys.d = false;
 }
 
 function handleMouseMove(e) {
@@ -2734,6 +2896,64 @@ function animate() {
     return true;
   });
 
+  // Update blood particles
+  const nowBlood = Date.now();
+  bloodParticles = bloodParticles.filter(p => {
+    const timeLeft = p.endTime - nowBlood;
+    if (timeLeft <= 0) {
+      scene.remove(p.mesh);
+      if (p.mesh.geometry) p.mesh.geometry.dispose();
+      if (p.mesh.material) p.mesh.material.dispose();
+      return false;
+    }
+    
+    p.mesh.position.x += p.vx * dt;
+    p.mesh.position.z += p.vz * dt;
+    p.vy -= 12.0 * dt; // Gravity
+    p.mesh.position.y += p.vy * dt;
+    
+    // Floor collision
+    if (p.mesh.position.y <= 0.05) {
+      p.mesh.position.y = 0.05;
+      p.vx = 0;
+      p.vz = 0;
+      p.vy = 0;
+      // Fade out slowly on floor
+      p.mesh.material.transparent = true;
+      p.mesh.material.opacity = Math.max(0, timeLeft / 300);
+    }
+    return true;
+  });
+
+  // Update gib particles
+  const nowGib = Date.now();
+  gibParticles = gibParticles.filter(p => {
+    const timeLeft = p.endTime - nowGib;
+    if (timeLeft <= 0) {
+      scene.remove(p.mesh);
+      if (p.mesh.geometry) p.mesh.geometry.dispose();
+      if (p.mesh.material) p.mesh.material.dispose();
+      return false;
+    }
+    
+    p.mesh.position.x += p.vx * dt;
+    p.mesh.position.z += p.vz * dt;
+    p.vy -= 15.0 * dt; // Gravity
+    p.mesh.position.y += p.vy * dt;
+    
+    if (p.mesh.position.y <= 0.1) {
+      p.mesh.position.y = 0.1;
+      p.vx *= 0.5; // Friction
+      p.vz *= 0.5;
+      p.vy = 0;
+      if (timeLeft < 1000) {
+        p.mesh.material.transparent = true;
+        p.mesh.material.opacity = Math.max(0, timeLeft / 1000);
+      }
+    }
+    return true;
+  });
+
   // 5.1 Bullet and Projectile Interpolation (Client-Side Prediction)
   for (let i = 0; i < bulletMeshes.length; i++) {
     const bMesh = bulletMeshes[i];
@@ -2782,150 +3002,252 @@ function syncEnemiesRender() {
     const sEnemy = enemiesList[eId];
     
     if (!enemiesMeshes[eId]) {
-      let mesh;
-      
-      if (sEnemy.type === 'shieldbearer') {
-        const group = new THREE.Group();
-        
-        // Body
-        const bodyGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
-        const bodyMat = new THREE.MeshStandardMaterial({
-          color: 0x777777,
-          roughness: 0.6,
-          metalness: 0.2,
-          emissive: 0x222222
-        });
-        const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
-        bodyMesh.position.y = 0.4;
-        bodyMesh.castShadow = true;
-        bodyMesh.receiveShadow = true;
-        group.add(bodyMesh);
-        
-        // Shield (in front)
-        const shieldGeo = new THREE.BoxGeometry(1.3, 0.85, 0.12);
-        const shieldMat = new THREE.MeshStandardMaterial({
-          color: 0xaaaaaa,
-          roughness: 0.3,
-          metalness: 0.9,
-          emissive: 0x111111
-        });
-        const shieldMesh = new THREE.Mesh(shieldGeo, shieldMat);
-        shieldMesh.position.set(0, 0.425, 0.45); // offset forward
-        shieldMesh.name = 'shield';
-        shieldMesh.castShadow = true;
-        shieldMesh.receiveShadow = true;
-        group.add(shieldMesh);
-        
-        group.position.set(sEnemy.x, 0, sEnemy.z);
-        group.userData = {
-          type: 'shieldbearer',
-          yHeight: 0,
-          baseColor: 0x777777,
-          baseEmissive: 0x222222,
-          isGroup: true
-        };
-        scene.add(group);
-        enemiesMeshes[eId] = group;
-        continue;
-      }
-      
-      let geo;
-      let sizeX = 0.8, sizeY = 0.8, sizeZ = 0.8;
-      let yVal = 0.4;
-      let color = 0xff3333;
-      let emissive = 0x330000;
-      let roughness = 0.5;
-      let metalness = 0.1;
-
-      if (sEnemy.type === 'sprinter') {
-        sizeX = sizeY = sizeZ = 0.5;
-        yVal = 0.25;
-        color = 0xff7700;
-        emissive = 0x441100;
-      } else if (sEnemy.type === 'tank') {
-        sizeX = sizeY = sizeZ = 1.4;
-        yVal = 0.7;
-        color = 0x3a3a3a;
-        emissive = 0x111111;
-        roughness = 0.8;
-        metalness = 0.8;
-      } else if (sEnemy.type === 'shooter') {
-        sizeX = sizeY = sizeZ = 0.8;
-        yVal = 0.4;
-        color = 0x9900ff;
-        emissive = 0x330066;
-      } else if (sEnemy.type === 'boss_hammer') {
-        sizeX = sizeY = sizeZ = 2.0;
-        yVal = 1.0;
-        color = 0x660000;
-        emissive = 0x220000;
-        roughness = 0.6;
-        metalness = 0.2;
-      } else if (sEnemy.type === 'kamikaze') {
-        sizeX = sizeY = sizeZ = 0.7;
-        yVal = 0.35;
-        color = 0xffea00; // yellow
-        emissive = 0x330000;
-      } else if (sEnemy.type === 'necromancer') {
-        sizeX = 0.8; sizeY = 1.2; sizeZ = 0.8;
-        yVal = 0.6;
-        color = 0x005511; // dark green
-        emissive = 0x00ff33;
-      } else if (sEnemy.type === 'boss_swarm') {
-        geo = new THREE.SphereGeometry(1.8, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2);
-        yVal = 0;
-        color = 0x4a0e4e; // deep organic purple
-        emissive = 0x220022;
-      } else if (sEnemy.type === 'spider') {
-        sizeX = sizeY = sizeZ = 0.4;
-        yVal = 0.2;
-        color = 0x333333;
-        emissive = 0x111111;
-      } else if (sEnemy.type === 'boss_drone') {
-        geo = new THREE.OctahedronGeometry(1.0);
-        yVal = 3.5;
-        color = 0x00aaff; // cyan cyberdrone
-        emissive = 0x002255;
-      } else if (sEnemy.type === 'boss_razlom') {
-        // Teleporter boss: sharp purple gem-like shape
-        geo = new THREE.OctahedronGeometry(1.4);
-        yVal = 1.0;
-        color = 0x9900ff; // deep violet
-        emissive = 0x330066;
-        metalness = 0.7;
-        roughness = 0.2;
-      } else if (sEnemy.type === 'boss_general') {
-        // Final boss: large imposing shape, phase-based color
-        sizeX = 2.5; sizeY = 2.5; sizeZ = 2.5;
-        yVal = 1.25;
-        color = 0xcc8800; // gold
-        emissive = 0x331100;
-        metalness = 0.8;
-        roughness = 0.3;
-      }
-
-      if (!geo) {
-        geo = new THREE.BoxGeometry(sizeX, sizeY, sizeZ);
-      }
-      
-      const mat = new THREE.MeshStandardMaterial({
-        color: color,
-        roughness: roughness,
-        metalness: metalness,
-        emissive: emissive
-      });
-      mesh = new THREE.Mesh(geo, mat);
-      mesh.position.set(sEnemy.x, yVal, sEnemy.z);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      
+      let mesh = new THREE.Group();
       mesh.userData = {
         type: sEnemy.type,
-        yHeight: yVal,
-        baseColor: color,
-        baseEmissive: emissive
+        isGroup: true,
+        baseColor: 0xff3333,
+        baseEmissive: 0x330000,
+        yHeight: 0.4
       };
-      
+
+      if (sEnemy.type === 'shieldbearer') {
+        const bodyGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0x777777, roughness: 0.6, metalness: 0.2, emissive: 0x222222 });
+        const bodyMesh = new THREE.Mesh(bodyGeo, bodyMat);
+        bodyMesh.position.y = 0.4;
+        bodyMesh.castShadow = true; bodyMesh.receiveShadow = true;
+        bodyMesh.userData.isBody = true;
+        mesh.add(bodyMesh);
+        
+        const shieldGeo = new THREE.BoxGeometry(1.3, 0.85, 0.12);
+        const shieldMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, roughness: 0.3, metalness: 0.9, emissive: 0x111111 });
+        const shieldMesh = new THREE.Mesh(shieldGeo, shieldMat);
+        shieldMesh.position.set(0, 0.425, 0.45);
+        shieldMesh.name = 'shield';
+        shieldMesh.castShadow = true; shieldMesh.receiveShadow = true;
+        mesh.add(shieldMesh);
+        
+        mesh.userData.baseColor = 0x777777;
+        mesh.userData.baseEmissive = 0x222222;
+        mesh.userData.yHeight = 0;
+      } 
+      else if (sEnemy.type === 'spider') {
+        mesh.userData.baseColor = 0x333333;
+        mesh.userData.baseEmissive = 0x111111;
+        mesh.userData.yHeight = 0.2;
+        
+        const bodyGeo = new THREE.BoxGeometry(0.4, 0.3, 0.4);
+        const mat = new THREE.MeshStandardMaterial({ color: 0x333333, emissive: 0x111111 });
+        const bodyMesh = new THREE.Mesh(bodyGeo, mat);
+        bodyMesh.position.y = 0.2;
+        bodyMesh.castShadow = true;
+        bodyMesh.userData.isBody = true;
+        mesh.add(bodyMesh);
+        
+        for(let i=0; i<4; i++) {
+          const legGeo = new THREE.BoxGeometry(0.1, 0.4, 0.1);
+          // pivot at top
+          legGeo.translate(0, -0.2, 0);
+          const legMesh = new THREE.Mesh(legGeo, mat);
+          legMesh.position.set((i%2===0?-0.2:0.2), 0.3, (i<2?-0.15:0.15));
+          legMesh.name = 'leg' + i;
+          mesh.add(legMesh);
+        }
+      }
+      else if (sEnemy.type === 'kamikaze') {
+        mesh.userData.baseColor = 0xffea00;
+        mesh.userData.baseEmissive = 0x551100;
+        mesh.userData.yHeight = 0.35;
+        
+        const bodyGeo = new THREE.DodecahedronGeometry(0.5);
+        const mat = new THREE.MeshStandardMaterial({ color: 0xffea00, emissive: 0x551100 });
+        const bodyMesh = new THREE.Mesh(bodyGeo, mat);
+        bodyMesh.position.y = 0.4;
+        bodyMesh.castShadow = true;
+        bodyMesh.name = 'pulsatingBody';
+        bodyMesh.userData.isBody = true;
+        mesh.add(bodyMesh);
+        
+        // legs
+        for(let i=0; i<2; i++) {
+          const legGeo = new THREE.BoxGeometry(0.15, 0.3, 0.15);
+          legGeo.translate(0, -0.15, 0);
+          const legMesh = new THREE.Mesh(legGeo, mat);
+          legMesh.position.set(i===0?-0.2:0.2, 0.3, 0);
+          legMesh.name = 'leg' + i;
+          mesh.add(legMesh);
+        }
+      }
+      else if (sEnemy.type === 'tank' || sEnemy.type === 'boss_hammer') {
+        const isBoss = sEnemy.type === 'boss_hammer';
+        mesh.userData.baseColor = isBoss ? 0x660000 : 0x3a3a3a;
+        mesh.userData.baseEmissive = isBoss ? 0x220000 : 0x111111;
+        mesh.userData.yHeight = isBoss ? 1.0 : 0.7;
+        const scale = isBoss ? 1.5 : 1.0;
+        
+        const pantsMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 });
+        const mat = new THREE.MeshStandardMaterial({ color: mesh.userData.baseColor, emissive: mesh.userData.baseEmissive, roughness: 0.8 });
+        const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0xffaa00 });
+        
+        const bodyGeo = new THREE.BoxGeometry(1.4*scale, 1.2*scale, 0.8*scale);
+        const bodyMesh = new THREE.Mesh(bodyGeo, mat);
+        bodyMesh.position.y = 0.8*scale; // Raised up for legs
+        bodyMesh.castShadow = true;
+        bodyMesh.userData.isBody = true;
+        mesh.add(bodyMesh);
+        
+        // head
+        const headGeo = new THREE.BoxGeometry(0.5*scale, 0.4*scale, 0.5*scale);
+        const headMesh = new THREE.Mesh(headGeo, mat);
+        headMesh.position.set(0, 1.6*scale, 0.2*scale); // Forward
+        headMesh.castShadow = true;
+        headMesh.name = 'head';
+        
+        // eyes
+        const eyeGeo = new THREE.BoxGeometry(0.1*scale, 0.05*scale, 0.05*scale);
+        for(let i=0; i<2; i++) {
+          const eye = new THREE.Mesh(eyeGeo, eyeMat);
+          eye.position.set(i===0?-0.15*scale:0.15*scale, 0.05*scale, 0.26*scale);
+          headMesh.add(eye);
+        }
+        mesh.add(headMesh);
+        
+        // arms
+        for(let i=0; i<2; i++) {
+          const armGeo = new THREE.BoxGeometry(0.4*scale, 1.0*scale, 0.4*scale);
+          armGeo.translate(0, -0.5*scale, 0);
+          const armMesh = new THREE.Mesh(armGeo, mat);
+          armMesh.position.set(i===0?-0.9*scale:0.9*scale, 1.3*scale, 0.2*scale);
+          armMesh.name = 'arm' + i;
+          armMesh.castShadow = true;
+          mesh.add(armMesh);
+        }
+        
+        // legs
+        for(let i=0; i<2; i++) {
+          const legGeo = new THREE.BoxGeometry(0.4*scale, 0.6*scale, 0.4*scale);
+          legGeo.translate(0, -0.3*scale, 0);
+          const legMesh = new THREE.Mesh(legGeo, pantsMat);
+          legMesh.position.set(i===0?-0.4*scale:0.4*scale, 0.6*scale, 0);
+          legMesh.name = 'leg' + i;
+          legMesh.castShadow = true;
+          mesh.add(legMesh);
+        }
+      }
+      else if (sEnemy.type === 'necromancer') {
+        mesh.userData.baseColor = 0x005511;
+        mesh.userData.baseEmissive = 0x00ff33;
+        mesh.userData.yHeight = 0.6;
+        
+        const mat = new THREE.MeshStandardMaterial({ color: 0x005511, emissive: 0x00ff33 });
+        const bodyGeo = new THREE.BoxGeometry(0.6, 1.0, 0.5);
+        const bodyMesh = new THREE.Mesh(bodyGeo, mat);
+        bodyMesh.position.y = 0.5;
+        bodyMesh.castShadow = true;
+        bodyMesh.userData.isBody = true;
+        mesh.add(bodyMesh);
+        
+        const sackGeo = new THREE.SphereGeometry(0.5);
+        const sackMat = new THREE.MeshStandardMaterial({ color: 0x4a0e4e, emissive: 0xff00ff });
+        const sackMesh = new THREE.Mesh(sackGeo, sackMat);
+        sackMesh.position.set(0, 0.8, -0.4);
+        sackMesh.name = 'sack';
+        mesh.add(sackMesh);
+        
+        // arms
+        for(let i=0; i<2; i++) {
+          const armGeo = new THREE.BoxGeometry(0.2, 0.8, 0.2);
+          armGeo.translate(0, -0.4, 0);
+          const armMesh = new THREE.Mesh(armGeo, mat);
+          armMesh.position.set(i===0?-0.4:0.4, 0.9, 0.2);
+          armMesh.name = 'arm' + i;
+          mesh.add(armMesh);
+        }
+      }
+      else if (sEnemy.type === 'boss_swarm' || sEnemy.type === 'boss_drone' || sEnemy.type === 'boss_razlom' || sEnemy.type === 'boss_general') {
+        let geo, color, emissive, yVal = 0, scale = 1;
+        if (sEnemy.type === 'boss_swarm') { geo = new THREE.SphereGeometry(1.8, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2); color = 0x4a0e4e; emissive = 0x220022; }
+        else if (sEnemy.type === 'boss_drone') { geo = new THREE.OctahedronGeometry(1.0); color = 0x00aaff; emissive = 0x002255; yVal = 3.5; }
+        else if (sEnemy.type === 'boss_razlom') { geo = new THREE.OctahedronGeometry(1.4); color = 0x9900ff; emissive = 0x330066; yVal = 1.0; }
+        else { geo = new THREE.BoxGeometry(2.5, 2.5, 2.5); color = 0xcc8800; emissive = 0x331100; yVal = 1.25; }
+        
+        const mat = new THREE.MeshStandardMaterial({ color: color, emissive: emissive, roughness: 0.5 });
+        const bodyMesh = new THREE.Mesh(geo, mat);
+        bodyMesh.position.y = yVal;
+        bodyMesh.castShadow = true;
+        bodyMesh.userData.isBody = true;
+        mesh.add(bodyMesh);
+        
+        mesh.userData.baseColor = color;
+        mesh.userData.baseEmissive = emissive;
+        mesh.userData.yHeight = yVal;
+      }
+      else {
+        // Base mutant (default, sprinter, shooter)
+        let scale = sEnemy.type === 'sprinter' ? 0.7 : 1.0;
+        let skinColor = sEnemy.type === 'shooter' ? 0x3b5c45 : (sEnemy.type === 'sprinter' ? 0x736c5b : 0x5a6350); // Realistic decayed skin
+        let shirtColor = sEnemy.type === 'sprinter' ? 0x5c3d2e : (sEnemy.type === 'shooter' ? 0x2a3b4c : 0x454545); // Tattered, dark muddy clothes
+        let pantsColor = 0x1a1a1a;
+        
+        mesh.userData.baseColor = shirtColor;
+        mesh.userData.baseEmissive = 0x220000;
+        mesh.userData.yHeight = 0.4 * scale;
+        
+        const skinMat = new THREE.MeshStandardMaterial({ color: skinColor, roughness: 0.8 });
+        const shirtMat = new THREE.MeshStandardMaterial({ color: shirtColor, roughness: 0.9 });
+        const pantsMat = new THREE.MeshStandardMaterial({ color: pantsColor, roughness: 0.9 });
+        const eyeMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000 });
+        
+        // Torso
+        const bodyGeo = new THREE.BoxGeometry(0.6*scale, 0.7*scale, 0.4*scale);
+        const bodyMesh = new THREE.Mesh(bodyGeo, shirtMat);
+        bodyMesh.position.y = 0.65*scale; // Up to make room for legs
+        bodyMesh.castShadow = true;
+        bodyMesh.userData.isBody = true;
+        mesh.add(bodyMesh);
+        
+        // Head
+        const headGeo = new THREE.BoxGeometry(0.35*scale, 0.35*scale, 0.35*scale);
+        const headMesh = new THREE.Mesh(headGeo, skinMat);
+        headMesh.position.set(0, 1.1*scale, 0.1*scale); // Forward facing
+        headMesh.castShadow = true;
+        headMesh.name = 'head';
+        
+        // Glowing eyes to show direction
+        const eyeGeo = new THREE.BoxGeometry(0.1*scale, 0.05*scale, 0.05*scale);
+        for(let i=0; i<2; i++) {
+          const eye = new THREE.Mesh(eyeGeo, eyeMat);
+          eye.position.set(i===0?-0.1*scale:0.1*scale, 0.05*scale, 0.18*scale);
+          headMesh.add(eye);
+        }
+        mesh.add(headMesh);
+        
+        // Arms
+        for(let i=0; i<2; i++) {
+          const armGeo = new THREE.BoxGeometry(0.15*scale, 0.6*scale, 0.15*scale);
+          armGeo.translate(0, -0.3*scale, 0);
+          const armMesh = new THREE.Mesh(armGeo, skinMat);
+          armMesh.position.set(i===0?-0.4*scale:0.4*scale, 0.95*scale, 0);
+          armMesh.rotation.x = -Math.PI / 2; // arms strictly forward zombie style
+          armMesh.name = 'arm' + i;
+          armMesh.castShadow = true;
+          mesh.add(armMesh);
+        }
+        
+        // Legs
+        for(let i=0; i<2; i++) {
+          const legGeo = new THREE.BoxGeometry(0.2*scale, 0.6*scale, 0.2*scale);
+          legGeo.translate(0, -0.3*scale, 0);
+          const legMesh = new THREE.Mesh(legGeo, pantsMat);
+          legMesh.position.set(i===0?-0.15*scale:0.15*scale, 0.4*scale, 0);
+          legMesh.name = 'leg' + i;
+          legMesh.castShadow = true;
+          mesh.add(legMesh);
+        }
+      }
+
+      mesh.position.set(sEnemy.x, 0, sEnemy.z);
       scene.add(mesh);
       enemiesMeshes[eId] = mesh;
     }
@@ -2955,105 +3277,126 @@ function syncEnemiesRender() {
       while (diff > Math.PI) diff -= Math.PI * 2;
       mesh.rotation.y += diff * 0.18;
 
-      if (mesh.userData.isGroup) {
-        // Group mesh (e.g. Shieldbearer)
-        const shield = mesh.getObjectByName('shield');
-        if (shield) {
-          shield.visible = sEnemy.shieldHp > 0;
+      // Procedural animation and states for Group meshes
+      const shield = mesh.getObjectByName('shield');
+      if (shield) shield.visible = sEnemy.shieldHp > 0;
+      
+      const time = Date.now() / 1000;
+      if (speed > 0.02) {
+        const body = mesh.children.find(c => c.userData.isBody);
+        if (body && sEnemy.type !== 'kamikaze' && sEnemy.type !== 'spider' && !sEnemy.type.startsWith('boss_')) {
+          body.rotation.x = Math.PI / 12; // lean forward
         }
-        mesh.children.forEach(child => {
-          if (child.material) {
-            if (mesh.userData.flashEndTime && Date.now() < mesh.userData.flashEndTime) {
-              child.material.color.setHex(0xffffff);
-              child.material.emissive.setHex(0xffffff);
-            } else {
-              if (sEnemy.isSlowed) {
-                child.material.color.setHex(0x33aaff);
-                child.material.emissive.setHex(0x002255);
-              } else {
-                child.material.color.setHex(child.name === 'shield' ? 0xaaaaaa : mesh.userData.baseColor);
-                child.material.emissive.setHex(child.name === 'shield' ? 0x111111 : mesh.userData.baseEmissive);
-              }
-            }
-          }
-        });
+        
+        const arm0 = mesh.getObjectByName('arm0');
+        const arm1 = mesh.getObjectByName('arm1');
+        if (arm0) arm0.rotation.x = Math.sin(time * 15) * 0.5 + (sEnemy.type === 'tank' || sEnemy.type === 'boss_hammer' || sEnemy.type === 'necromancer' ? 0 : -Math.PI / 2);
+        if (arm1) arm1.rotation.x = -Math.sin(time * 15) * 0.5 + (sEnemy.type === 'tank' || sEnemy.type === 'boss_hammer' || sEnemy.type === 'necromancer' ? 0 : -Math.PI / 2);
+        
+        const leg0 = mesh.getObjectByName('leg0');
+        const leg1 = mesh.getObjectByName('leg1');
+        const leg2 = mesh.getObjectByName('leg2');
+        const leg3 = mesh.getObjectByName('leg3');
+        if (leg0) leg0.rotation.x = Math.sin(time * 20) * 0.5;
+        if (leg1) leg1.rotation.x = -Math.sin(time * 20) * 0.5;
+        if (leg2) leg2.rotation.x = Math.sin(time * 20 + Math.PI) * 0.5;
+        if (leg3) leg3.rotation.x = -Math.sin(time * 20 + Math.PI) * 0.5;
       } else {
-        // Normal mesh
-        if (mesh.userData.flashEndTime && Date.now() < mesh.userData.flashEndTime) {
-          mesh.material.color.setHex(0x550000); // Dark red flash
-          mesh.material.emissive.setHex(0x330000);
+         const body = mesh.children.find(c => c.userData.isBody);
+         if (body) body.rotation.x = 0;
+         for(let i=0; i<4; i++) {
+            const arm = mesh.getObjectByName('arm'+i);
+            if (arm) arm.rotation.x = (sEnemy.type === 'tank' || sEnemy.type === 'boss_hammer' || sEnemy.type === 'necromancer') ? 0 : -Math.PI / 2;
+            const leg = mesh.getObjectByName('leg'+i);
+            if (leg) leg.rotation.x = 0;
+         }
+      }
+
+      const pulsatingBody = mesh.getObjectByName('pulsatingBody');
+      if (pulsatingBody) {
+         const distToPlayer = Math.hypot(localPlayerState.x - sEnemy.x, localPlayerState.z - sEnemy.z);
+         const pulseSpeed = Math.max(5, 30 - distToPlayer * 2);
+         const scale = 1.0 + Math.sin(time * pulseSpeed) * 0.15;
+         pulsatingBody.scale.set(scale, scale, scale);
+      }
+
+      // Group-level scaling/rotation based on type and states
+      let overrideColor = null;
+      let overrideEmissive = null;
+      let overrideOpacity = 1.0;
+
+      if (sEnemy.type === 'boss_hammer' && sEnemy.isEnraged) {
+        mesh.scale.set(1.2, 1.2, 1.2);
+        overrideColor = 0xff0000;
+        overrideEmissive = 0xff0000;
+      } else if (sEnemy.type === 'kamikaze' && mesh.userData.isFuseActive) {
+        const timeFactor = Date.now() * 0.02;
+        const pulse = 1.0 + Math.sin(timeFactor) * 0.15;
+        mesh.scale.set(pulse, pulse, pulse);
+        const flashColor = Math.floor(timeFactor) % 2 === 0 ? 0xff0000 : 0xffea00;
+        overrideColor = flashColor;
+        overrideEmissive = flashColor;
+      } else if (sEnemy.type === 'boss_swarm' && sEnemy.isBellyOpen) {
+        const pulse = 1.0 + Math.sin(Date.now() * 0.015) * 0.08;
+        mesh.scale.set(pulse, pulse, pulse);
+        overrideColor = 0xff3300;
+        overrideEmissive = 0xff3300;
+      } else if (sEnemy.type === 'boss_drone' && sEnemy.isLanded) {
+        mesh.scale.set(1.0, 1.0, 1.0);
+        overrideColor = 0xffea00;
+        overrideEmissive = 0x554400;
+      } else if (sEnemy.type === 'boss_general') {
+        const phase = sEnemy.phase || 1;
+        if (phase === 1) {
+          const pulseG = sEnemy.isEnraged ? (1.3 + Math.sin(Date.now() * 0.025) * 0.1) : 1.0;
+          mesh.scale.set(pulseG, pulseG, pulseG);
+          overrideColor = sEnemy.isEnraged ? 0xff3300 : 0xcc8800;
+          overrideEmissive = sEnemy.isEnraged ? 0x441100 : 0x331100;
+        } else if (phase === 2) {
+          const pulseB = 1.0 + Math.sin(Date.now() * 0.015) * 0.08;
+          mesh.scale.set(pulseB, pulseB, pulseB);
+          overrideColor = 0x0088ff;
+          overrideEmissive = 0x002244;
         } else {
-          if (sEnemy.type === 'boss_hammer' && sEnemy.isEnraged) {
-            mesh.scale.set(1.2, 1.2, 1.2);
-            mesh.material.color.setHex(0xff0000);
-            mesh.material.emissive.setHex(0xff0000);
-          } else if (sEnemy.type === 'boss_general') {
-            // Phase-based color and scale
-            const phase = sEnemy.phase || 1;
-            if (phase === 1) {
-              const pulseG = sEnemy.isEnraged ? (1.3 + Math.sin(Date.now() * 0.025) * 0.1) : 1.0;
-              mesh.scale.set(pulseG, pulseG, pulseG);
-              mesh.material.color.setHex(sEnemy.isEnraged ? 0xff3300 : 0xcc8800);
-              mesh.material.emissive.setHex(sEnemy.isEnraged ? 0x441100 : 0x331100);
-            } else if (phase === 2) {
-              const pulseB = 1.0 + Math.sin(Date.now() * 0.015) * 0.08;
-              mesh.scale.set(pulseB, pulseB, pulseB);
-              mesh.material.color.setHex(0x0088ff);
-              mesh.material.emissive.setHex(0x002244);
-            } else {
-              const pulseP = 1.2 + Math.sin(Date.now() * 0.035) * 0.15;
-              mesh.scale.set(pulseP, pulseP, pulseP);
-              mesh.material.color.setHex(0xff00ff);
-              mesh.material.emissive.setHex(0x440044);
-            }
-          } else if (sEnemy.type === 'boss_razlom') {
-            // Teleporter: spin + flicker if warping
-            mesh.rotation.y += 0.04;
-            if (sEnemy.isWarping) {
-              const t = Date.now() * 0.03;
-              const flicker = Math.sin(t) > 0 ? 0xffffff : 0x9900ff;
-              mesh.material.color.setHex(flicker);
-              mesh.material.emissive.setHex(0x440066);
-              mesh.material.opacity = 0.5 + Math.abs(Math.sin(t)) * 0.5;
-              mesh.material.transparent = true;
-            } else {
-              mesh.material.color.setHex(0x9900ff);
-              mesh.material.emissive.setHex(0x330066);
-              mesh.material.opacity = 1.0;
-              mesh.material.transparent = false;
-            }
-          } else if (sEnemy.type === 'boss_hammer' && sEnemy.isEnraged) {
-            mesh.scale.set(1.2, 1.2, 1.2);
-            mesh.material.color.setHex(0xff0000);
-            mesh.material.emissive.setHex(0xff0000);
-          } else if (sEnemy.type === 'kamikaze' && mesh.userData.isFuseActive) {
-            const timeFactor = Date.now() * 0.02;
-            const pulse = 1.0 + Math.sin(timeFactor) * 0.15;
-            mesh.scale.set(pulse, pulse, pulse);
-            const flashColor = Math.floor(timeFactor) % 2 === 0 ? 0xff0000 : 0xffea00;
-            mesh.material.color.setHex(flashColor);
-            mesh.material.emissive.setHex(flashColor);
-          } else if (sEnemy.type === 'boss_swarm' && sEnemy.isBellyOpen) {
-            const pulse = 1.0 + Math.sin(Date.now() * 0.015) * 0.08;
-            mesh.scale.set(pulse, pulse, pulse);
-            mesh.material.color.setHex(0xff3300);
-            mesh.material.emissive.setHex(0xff3300);
-          } else if (sEnemy.type === 'boss_drone' && sEnemy.isLanded) {
-            mesh.scale.set(1.0, 1.0, 1.0);
-            mesh.material.color.setHex(0xffea00);
-            mesh.material.emissive.setHex(0x554400);
+          const pulseP = 1.2 + Math.sin(Date.now() * 0.035) * 0.15;
+          mesh.scale.set(pulseP, pulseP, pulseP);
+          overrideColor = 0xff00ff;
+          overrideEmissive = 0x440044;
+        }
+      } else if (sEnemy.type === 'boss_razlom') {
+        mesh.rotation.y += 0.04; // Base group rotation over time
+        if (sEnemy.isWarping) {
+          const t = Date.now() * 0.03;
+          overrideColor = Math.sin(t) > 0 ? 0xffffff : 0x9900ff;
+          overrideEmissive = 0x440066;
+          overrideOpacity = 0.5 + Math.abs(Math.sin(t)) * 0.5;
+        } else {
+          overrideColor = 0x9900ff;
+          overrideEmissive = 0x330066;
+        }
+      } else {
+        mesh.scale.set(1.0, 1.0, 1.0);
+      }
+
+      mesh.children.forEach(child => {
+        if (child.material) {
+          if (mesh.userData.flashEndTime && Date.now() < mesh.userData.flashEndTime) {
+            child.material.color.setHex(0xff5555); // Red/flesh flash instead of white to prevent blue tint
+            child.material.emissive.setHex(0xff5555);
           } else {
-            mesh.scale.set(1.0, 1.0, 1.0);
-            if (sEnemy.isSlowed) {
-              mesh.material.color.setHex(0x33aaff);
-              mesh.material.emissive.setHex(0x002255);
-            } else {
-              mesh.material.color.setHex(mesh.userData.baseColor);
-              mesh.material.emissive.setHex(mesh.userData.baseEmissive);
+            let col = overrideColor !== null ? overrideColor : mesh.userData.baseColor;
+            let emi = overrideEmissive !== null ? overrideEmissive : mesh.userData.baseEmissive;
+            if (child.name === 'shield') {
+              col = 0xaaaaaa;
+              emi = 0x111111;
             }
+            child.material.color.setHex(col);
+            child.material.emissive.setHex(emi);
+            child.material.opacity = overrideOpacity;
+            child.material.transparent = overrideOpacity < 1.0;
           }
         }
-      }
+      });
     }
   }
 

@@ -247,7 +247,7 @@ function handleCrateDeath(activeRoom, crateId) {
   io.to(activeRoom.roomCode).emit('crate-destroyed', { crateId, x: crate.x, z: crate.z });
 }
 
-function handleEnemyDeath(activeRoom, enemyId, owner) {
+function handleEnemyDeath(activeRoom, enemyId, owner, killerWeapon = null) {
   const enemy = activeRoom.enemies[enemyId];
   if (!enemy) return;
   if (enemy.type !== 'boss_hammer' && enemy.type !== 'boss_swarm' && enemy.type !== 'boss_drone' && enemy.type !== 'boss_razlom' && enemy.type !== 'boss_general' && enemy.type !== 'kamikaze' && enemy.type !== 'spider') {
@@ -419,7 +419,14 @@ function handleEnemyDeath(activeRoom, enemyId, owner) {
       };
     }
   }
-  io.to(activeRoom.roomCode).emit('enemy-killed', { enemyId: enemyId, x: enemy.x, z: enemy.z });
+  io.to(activeRoom.roomCode).emit('enemy-killed', { 
+    enemyId: enemyId, 
+    x: enemy.x, 
+    z: enemy.z,
+    weapon: killerWeapon ? killerWeapon : (owner ? owner.currentWeapon : null),
+    ownerX: owner ? owner.x : null,
+    ownerZ: owner ? owner.z : null
+  });
 }
 
 function startGameLoop(roomCode) {
@@ -2167,9 +2174,9 @@ function startGameLoop(roomCode) {
               else if (distFired <= 5.0) finalDmg = bullet.damage * 0.5; // 4
               else finalDmg = bullet.damage * 0.25; // 2
 
-              // Knockback: push back by 1.5m
-              enemy.x += Math.sin(bullet.pelletAngle) * 1.5;
-              enemy.z += Math.cos(bullet.pelletAngle) * 1.5;
+              // Knockback: push back by 0.5m
+              enemy.x += Math.sin(bullet.pelletAngle) * 0.5;
+              enemy.z += Math.cos(bullet.pelletAngle) * 0.5;
 
               const margin = 0.4;
               enemy.x = Math.max(-ARENA_WIDTH / 2 + margin, Math.min(ARENA_WIDTH / 2 - margin, enemy.x));
@@ -2225,7 +2232,7 @@ function startGameLoop(roomCode) {
               // Check if dead
               if (enemy.hp <= 0) {
                 const owner = activeRoom.players[bullet.ownerId];
-                handleEnemyDeath(activeRoom, enemyId, owner);
+                handleEnemyDeath(activeRoom, enemyId, owner, bullet.type);
               }
             }
 
