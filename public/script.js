@@ -58,6 +58,12 @@ let activeVFX = [];
 let barrelsList = {};
 let barrelsMeshes = {};
 let warpWarningMeshes = {};
+
+const sharedBloodGeo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
+const sharedBloodMat = new THREE.MeshBasicMaterial({ color: 0xaa0000 });
+const sharedGibGeo = new THREE.DodecahedronGeometry(0.15);
+const sharedGibMat = new THREE.MeshBasicMaterial({ color: 0x880000 });
+let lastFloatingTextTime = 0;
 let comboDecayTimer = 0;
 
 // PC Weapon Reload track
@@ -661,10 +667,10 @@ function setupSocket() {
           }
         }
         
-        for(let i=0; i<8; i++) {
-          const bGeo = new THREE.BoxGeometry(0.06, 0.06, 0.06);
-          const bMat = new THREE.MeshBasicMaterial({ color: 0x770000 });
-          const bMesh = new THREE.Mesh(bGeo, bMat);
+        // Limit blood particles on mobile
+        const maxParticles = isTouchDevice ? 2 : 6;
+        for(let i=0; i<maxParticles; i++) {
+          const bMesh = new THREE.Mesh(sharedBloodGeo, sharedBloodMat);
           
           bMesh.position.set(
             data.x + (Math.random()-0.5)*0.3, 
@@ -684,7 +690,13 @@ function setupSocket() {
         }
       }
     }
-    spawnFloatingText(Math.round(data.damage).toString(), data.x, 1.2, data.z, '#ff0055');
+    
+    // Throttle floating text on hit to prevent canvas generation lag (especially on mobile)
+    const now = Date.now();
+    if (!isTouchDevice || now - lastFloatingTextTime > 40) {
+      spawnFloatingText(Math.round(data.damage).toString(), data.x, 1.2, data.z, '#ff0055');
+      lastFloatingTextTime = now;
+    }
   });
 
   socket.on('enemy-killed', (data) => {
@@ -708,10 +720,11 @@ function setupSocket() {
             }
           }
           
-          for(let i=0; i<6; i++) {
-            const gGeo = new THREE.DodecahedronGeometry(0.1 + Math.random() * 0.1);
-            const gMat = new THREE.MeshBasicMaterial({ color: 0x550000 });
-            const gMesh = new THREE.Mesh(gGeo, gMat);
+          // Limit gibs on mobile
+          const maxGibs = isTouchDevice ? 2 : 6;
+          for(let i=0; i<maxGibs; i++) {
+            const gMesh = new THREE.Mesh(sharedGibGeo, sharedGibMat);
+            gMesh.scale.setScalar(0.7 + Math.random() * 0.6);
             gMesh.position.set(
               data.x + (Math.random()-0.5)*0.5, 
               0.5 + Math.random()*0.5, 
