@@ -16,7 +16,7 @@ let isHost = false;
 let playerList = {};
 
 // Client-Side Prediction State
-let localPlayerState = { x: -5, z: 0, angle: 0, hp: 100, maxHp: 100, scrap: 0, weapons: ['pistol'], currentWeapon: 'pistol' };
+let localPlayerState = { x: -5, z: 0, angle: 0, hp: 100, maxHp: 100, scrap: 0, weapons: { pistol: { level: 1 } }, currentWeapon: 'pistol' };
 let inputSeq = 0;
 let pendingInputs = [];
 let targetAngle = 0;
@@ -128,6 +128,7 @@ const workbenchModal = document.getElementById('workbench-modal');
 const closeWorkbenchBtn = document.getElementById('close-workbench-btn');
 const wbLocalScrap = document.getElementById('wb-local-scrap');
 const wbRemoteScrap = document.getElementById('wb-remote-scrap');
+const craftPistolBtn = document.getElementById('craft-pistol-btn');
 const craftShotgunBtn = document.getElementById('craft-shotgun-btn');
 const craftArBtn = document.getElementById('craft-ar-btn');
 const craftSniperBtn = document.getElementById('craft-sniper-btn');
@@ -137,6 +138,12 @@ const craftTeslaBtn = document.getElementById('craft-tesla-btn');
 const craftCrossbowBtn = document.getElementById('craft-crossbow-btn');
 const transfer5Btn = document.getElementById('transfer-5-btn');
 const transfer15Btn = document.getElementById('transfer-15-btn');
+
+// Draft phase elements
+const draftModal = document.getElementById('draft-modal');
+const draftTimerText = document.getElementById('draft-timer-text');
+const draftChoicesContainer = document.getElementById('draft-choices-container');
+const draftWaitingText = document.getElementById('draft-waiting-text');
 
 // Stage 4 Downed HUD elements
 const downedOverlay = document.getElementById('downed-overlay');
@@ -192,6 +199,10 @@ const GameAudio = {
   sounds: {
     pistol: 'audio/pistol_shot.mp3',
     shotgun: 'audio/shotgun.mp3',
+    shotgunKill: 'audio/shotgun_kill.mp3',
+    ar: 'audio/ar_shoot.mp3',
+    sniper: 'audio/sniper_shoot.mp3',
+    sniperHit: 'audio/sniper_hit.mp3',
     hit: 'audio/shot_on_mob.mp3',
     scrapNormal: 'audio/zapchast_1.mp3',
     scrapGood: 'audio/zapchast_xoroshaya.mp3'
@@ -313,6 +324,11 @@ window.addEventListener('DOMContentLoaded', () => {
     workbenchModal.classList.toggle('hidden');
   });
   closeWorkbenchBtn.addEventListener('click', () => {
+    workbenchModal.classList.add('hidden');
+  });
+
+  craftPistolBtn.addEventListener('click', () => {
+    socket.emit('start-craft', { weaponName: 'pistol' });
     workbenchModal.classList.add('hidden');
   });
 
@@ -580,6 +596,8 @@ function setupSocket() {
     
     if (data.weapon === 'pistol') GameAudio.playSound('pistol', 0.4);
     else if (data.weapon === 'shotgun') GameAudio.playSound('shotgun', 0.5);
+    else if (data.weapon === 'ar') GameAudio.playSound('ar', 0.4);
+    else if (data.weapon === 'sniper') GameAudio.playSound('sniper', 0.6);
     
     if (scene && data.weapon !== 'flamethrower' && data.weapon !== 'tesla' && data.weapon !== 'crossbow') {
        // Calculate exact barrel position
@@ -651,7 +669,11 @@ function setupSocket() {
   });
 
   socket.on('enemy-hit', (data) => {
-    GameAudio.playSound('hit', 0.3);
+    if (data.weapon === 'sniper') {
+      GameAudio.playSound('sniperHit', 0.6);
+    } else {
+      GameAudio.playSound('hit', 0.3);
+    }
     const mesh = enemiesMeshes[data.enemyId];
     if (mesh) {
       mesh.userData.flashEndTime = Date.now() + 100;
@@ -707,6 +729,7 @@ function setupSocket() {
     const mesh = enemiesMeshes[data.enemyId];
     if (mesh) {
       if (data.weapon === 'shotgun') {
+        GameAudio.playSound('shotgunKill', 0.6);
         mesh.visible = false;
         mesh.userData.isDying = true;
         
@@ -864,6 +887,8 @@ function setupSocket() {
     announcementTitle.className = 'pulse-text';
     announcementSubtitle.textContent = 'УНИЧТОЖЬТЕ МУТАНТОВ';
     
+    document.querySelector('.hud-bottom').classList.remove('hidden');
+    
     setTimeout(() => {
       if (announcementTitle.textContent.startsWith('РАУНД')) {
         announcementOverlay.classList.add('hidden');
@@ -871,14 +896,45 @@ function setupSocket() {
     }, 3000);
   });
 
+  socket.on('draft-started', (data) => {
+    // Show draft modal
+    draftModal.classList.remove('hidden');
+    document.querySelector('.hud-bottom').classList.add('hidden');
+    draftWaitingText.classList.add('hidden');
+    draftChoicesContainer.innerHTML = '';
+    
+    // My choices
+    const myChoices = data.choices[myPlayerId] || [];
+    myChoices.forEach(perk => {
+      const card = document.createElement('div');
+      card.className = 'craft-item-card';
+      card.innerHTML = `
+        <div class="item-header" style="color: #ffd700;">${perk.name}</div>
+        <p style="margin: 15px 0;">${perk.desc}</p>
+        <button class="btn success-btn" style="width: 100%;">ВЫБРАТЬ</button>
+      `;
+      const btn = card.querySelector('button');
+      btn.addEventListener('click', () => {
+        socket.emit('draft-select', { perkId: perk.id });
+        draftChoicesContainer.innerHTML = ''; // clear choices
+        draftWaitingText.classList.remove('hidden');
+        document.querySelector('.hud-bottom').classList.remove('hidden');
+      });
+      draftChoicesContainer.appendChild(card);
+    });
+  });
+
   socket.on('round-completed', (data) => {
+    draftModal.classList.add('hidden'); // Hide draft modal if it was open
+    document.querySelector('.hud-bottom').classList.remove('hidden');
+    
     announcementOverlay.classList.remove('hidden');
-    announcementTitle.textContent = 'ВОЛНА ЗАЧИЩЕНА';
+    announcementTitle.textContent = 'СНАБЖЕНИЕ ЗАВЕРШЕНО';
     announcementTitle.className = 'pulse-text neon-text';
     announcementSubtitle.textContent = 'ПЕРЕРЫВ ДЛЯ СБОРА И КРАФТА';
 
     setTimeout(() => {
-      if (announcementTitle.textContent === 'ВОЛНА ЗАЧИЩЕНА') {
+      if (announcementTitle.textContent === 'СНАБЖЕНИЕ ЗАВЕРШЕНО') {
         announcementOverlay.classList.add('hidden');
       }
     }, 3000);
@@ -1394,11 +1450,14 @@ function setupSocket() {
     // 3. Update general HUD scores and rounds
     hudScore.textContent = String(state.score).padStart(5, '0');
     
-    if (state.roundState === 'intermission') {
+    if (state.roundState === 'intermission' || state.roundState === 'draft') {
       hudRound.textContent = `РАУНД ${state.round}`;
-      hudRoundLabel.textContent = 'ПОДГОТОВКА';
+      hudRoundLabel.textContent = state.roundState === 'draft' ? 'СНАБЖЕНИЕ' : 'ПОДГОТОВКА';
       hudTimer.classList.remove('hidden');
       hudTimer.textContent = Math.ceil(state.roundTimer);
+      if (state.roundState === 'draft') {
+        draftTimerText.textContent = Math.ceil(state.roundTimer);
+      }
     } else {
       hudRound.textContent = `РАУНД ${state.round}/50`;
       hudRoundLabel.textContent = 'ВОЛНА';
@@ -1608,15 +1667,19 @@ function updateWeaponGauges(player, target) {
     crossbow: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align: middle; margin-right: 5px;"><path d="M2,12 L20,12 M18,8 L22,12 L18,16 M10,6 L10,18 M8,8 L12,12 L8,16" stroke="currentColor" stroke-width="2" fill="none"/></svg>АРБАЛЕТ'
   };
 
+  const curWp = player.currentWeapon;
+  const level = player.weapons[curWp] ? player.weapons[curWp].level : 1;
+  const starsHtml = `<br><span style="font-size: 0.8rem; color: #ffd700;">${'⭐'.repeat(level)}</span>`;
+
   if (player.currentWeapon === 'pistol') {
-    nameElement.innerHTML = weaponIcons.pistol;
+    nameElement.innerHTML = weaponIcons.pistol + starsHtml;
     fillElement.style.width = '0%';
     
     if (isLocal && announcementTitle.textContent === 'СБОРКА...') {
       announcementOverlay.classList.add('hidden');
     }
   } else if (player.currentWeapon === 'shotgun') {
-    nameElement.innerHTML = weaponIcons.shotgun;
+    nameElement.innerHTML = weaponIcons.shotgun + starsHtml;
     // 1.5s (1500ms) reload LERP gauge
     const elapsed = Date.now() - lastShot;
     const progress = Math.min(1.0, elapsed / 1500);
@@ -1632,7 +1695,7 @@ function updateWeaponGauges(player, target) {
       fillElement.style.width = `${player.heat}%`;
       fillElement.style.background = '#8b0000';
     } else {
-      nameElement.innerHTML = weaponIcons.ar;
+      nameElement.innerHTML = weaponIcons.ar + starsHtml;
       fillElement.style.width = `${player.heat}%`;
       fillElement.style.background = '#d4af37'; // Gold
     }
@@ -1641,7 +1704,7 @@ function updateWeaponGauges(player, target) {
       announcementOverlay.classList.add('hidden');
     }
   } else if (player.currentWeapon === 'sniper') {
-    nameElement.innerHTML = weaponIcons.sniper;
+    nameElement.innerHTML = weaponIcons.sniper + starsHtml;
     const elapsed = Date.now() - lastShot;
     const progress = Math.min(1.0, elapsed / 2500);
     fillElement.style.width = `${(1.0 - progress) * 100}%`;
@@ -1656,7 +1719,7 @@ function updateWeaponGauges(player, target) {
       fillElement.style.width = `${player.heat}%`;
       fillElement.style.background = '#8b0000';
     } else {
-      nameElement.innerHTML = weaponIcons.hmg;
+      nameElement.innerHTML = weaponIcons.hmg + starsHtml;
       fillElement.style.width = `${player.heat}%`;
       fillElement.style.background = '#d4af37';
     }
@@ -1665,7 +1728,7 @@ function updateWeaponGauges(player, target) {
       announcementOverlay.classList.add('hidden');
     }
   } else if (player.currentWeapon === 'flamethrower') {
-    nameElement.innerHTML = weaponIcons.flamethrower;
+    nameElement.innerHTML = weaponIcons.flamethrower + starsHtml;
     fillElement.style.width = `${player.energy}%`;
     fillElement.style.background = '#ff5500';
     
@@ -1673,7 +1736,7 @@ function updateWeaponGauges(player, target) {
       announcementOverlay.classList.add('hidden');
     }
   } else if (player.currentWeapon === 'tesla') {
-    nameElement.innerHTML = weaponIcons.tesla;
+    nameElement.innerHTML = weaponIcons.tesla + starsHtml;
     const battPercent = Math.min(100, Math.max(0, (player.battery / 80) * 100));
     if (player.isBatteryDepleted) {
       fillElement.style.width = `${battPercent}%`;
@@ -1707,7 +1770,7 @@ function updateWeaponHUDButtons(unlockedWeapons, currentWeapon) {
 
   // Shotgun
   selectShotgunBtn.className = 'weapon-btn';
-  if (unlockedWeapons.includes('shotgun')) {
+  if (unlockedWeapons['shotgun']) {
     selectShotgunBtn.classList.remove('locked');
     selectShotgunBtn.removeAttribute('disabled');
     if (currentWeapon === 'shotgun') selectShotgunBtn.classList.add('active');
@@ -1719,7 +1782,7 @@ function updateWeaponHUDButtons(unlockedWeapons, currentWeapon) {
 
   // Assault Rifle
   selectArBtn.className = 'weapon-btn';
-  if (unlockedWeapons.includes('ar')) {
+  if (unlockedWeapons['ar']) {
     selectArBtn.classList.remove('locked');
     selectArBtn.removeAttribute('disabled');
     if (currentWeapon === 'ar') selectArBtn.classList.add('active');
@@ -1731,7 +1794,7 @@ function updateWeaponHUDButtons(unlockedWeapons, currentWeapon) {
 
   // Sniper
   selectSniperBtn.className = 'weapon-btn';
-  if (unlockedWeapons.includes('sniper')) {
+  if (unlockedWeapons['sniper']) {
     selectSniperBtn.classList.remove('locked');
     selectSniperBtn.removeAttribute('disabled');
     if (currentWeapon === 'sniper') selectSniperBtn.classList.add('active');
@@ -1743,7 +1806,7 @@ function updateWeaponHUDButtons(unlockedWeapons, currentWeapon) {
 
   // HMG
   selectHmgBtn.className = 'weapon-btn';
-  if (unlockedWeapons.includes('hmg')) {
+  if (unlockedWeapons['hmg']) {
     selectHmgBtn.classList.remove('locked');
     selectHmgBtn.removeAttribute('disabled');
     if (currentWeapon === 'hmg') selectHmgBtn.classList.add('active');
@@ -1755,7 +1818,7 @@ function updateWeaponHUDButtons(unlockedWeapons, currentWeapon) {
 
   // Flamethrower
   selectFlamethrowerBtn.className = 'weapon-btn';
-  if (unlockedWeapons.includes('flamethrower')) {
+  if (unlockedWeapons['flamethrower']) {
     selectFlamethrowerBtn.classList.remove('locked');
     selectFlamethrowerBtn.removeAttribute('disabled');
     if (currentWeapon === 'flamethrower') selectFlamethrowerBtn.classList.add('active');
@@ -1767,7 +1830,7 @@ function updateWeaponHUDButtons(unlockedWeapons, currentWeapon) {
 
   // Tesla
   selectTeslaBtn.className = 'weapon-btn';
-  if (unlockedWeapons.includes('tesla')) {
+  if (unlockedWeapons['tesla']) {
     selectTeslaBtn.classList.remove('locked');
     selectTeslaBtn.removeAttribute('disabled');
     if (currentWeapon === 'tesla') selectTeslaBtn.classList.add('active');
@@ -1779,7 +1842,7 @@ function updateWeaponHUDButtons(unlockedWeapons, currentWeapon) {
 
   // Crossbow
   selectCrossbowBtn.className = 'weapon-btn';
-  if (unlockedWeapons.includes('crossbow')) {
+  if (unlockedWeapons['crossbow']) {
     selectCrossbowBtn.classList.remove('locked');
     selectCrossbowBtn.removeAttribute('disabled');
     if (currentWeapon === 'crossbow') selectCrossbowBtn.classList.add('active');
@@ -1789,139 +1852,142 @@ function updateWeaponHUDButtons(unlockedWeapons, currentWeapon) {
     selectCrossbowBtn.setAttribute('disabled', 'true');
   }
 
-  // Update central workbench modal craft cards
-  if (unlockedWeapons.includes('shotgun')) {
-    document.getElementById('craft-shotgun-card').classList.add('already-owned');
-    craftShotgunBtn.textContent = 'СОБРАНО';
-    craftShotgunBtn.setAttribute('disabled', 'true');
-    craftShotgunBtn.className = 'btn secondary-btn';
-  } else {
-    document.getElementById('craft-shotgun-card').classList.remove('already-owned');
-    craftShotgunBtn.textContent = 'СОБРАТЬ (7с)';
-    craftShotgunBtn.removeAttribute('disabled');
-    craftShotgunBtn.className = 'btn success-btn';
-  }
-  
-  if (unlockedWeapons.includes('ar')) {
-    document.getElementById('craft-ar-card').classList.add('already-owned');
-    craftArBtn.textContent = 'СОБРАНО';
-    craftArBtn.setAttribute('disabled', 'true');
-    craftArBtn.className = 'btn secondary-btn';
-  } else {
-    document.getElementById('craft-ar-card').classList.remove('already-owned');
-    craftArBtn.textContent = 'СОБРАТЬ (7с)';
-    craftArBtn.removeAttribute('disabled');
-    craftArBtn.className = 'btn success-btn';
-  }
+  // Update central workbench modal craft cards with dynamic RPG levels
+  const costTable = {
+    pistol: [ { scrap: 10, wp: 0, bp: 0 }, { scrap: 15, wp: 2, bp: 0 }, { scrap: 0, wp: 15, bp: 0 }, { scrap: 0, wp: 20, bp: 1 } ],
+    shotgun: [ { scrap: 15, wp: 0, bp: 0 }, { scrap: 15, wp: 5, bp: 0 }, { scrap: 0, wp: 15, bp: 0 }, { scrap: 0, wp: 20, bp: 0 }, { scrap: 0, wp: 25, bp: 1 } ],
+    ar: [ { scrap: 20, wp: 0, bp: 0 }, { scrap: 15, wp: 5, bp: 0 }, { scrap: 0, wp: 15, bp: 0 }, { scrap: 0, wp: 20, bp: 0 }, { scrap: 0, wp: 25, bp: 1 } ],
+    sniper: [ { scrap: 0, wp: 10, bp: 1 }, { scrap: 0, wp: 15, bp: 0 }, { scrap: 0, wp: 20, bp: 0 }, { scrap: 0, wp: 25, bp: 0 }, { scrap: 0, wp: 30, bp: 1 } ],
+    hmg: [ { scrap: 0, wp: 15, bp: 1 }, { scrap: 0, wp: 15, bp: 0 }, { scrap: 0, wp: 20, bp: 0 }, { scrap: 0, wp: 25, bp: 0 }, { scrap: 0, wp: 30, bp: 1 } ],
+    flamethrower: [ { scrap: 0, wp: 12, bp: 2 }, { scrap: 0, wp: 15, bp: 0 }, { scrap: 0, wp: 20, bp: 0 }, { scrap: 0, wp: 25, bp: 0 }, { scrap: 0, wp: 30, bp: 1 } ],
+    tesla: [ { scrap: 0, wp: 15, bp: 2 }, { scrap: 0, wp: 15, bp: 0 }, { scrap: 0, wp: 20, bp: 0 }, { scrap: 0, wp: 25, bp: 0 }, { scrap: 0, wp: 30, bp: 1 } ],
+    crossbow: [ { scrap: 0, wp: 10, bp: 2 }, { scrap: 0, wp: 15, bp: 0 }, { scrap: 0, wp: 20, bp: 0 }, { scrap: 0, wp: 25, bp: 0 }, { scrap: 0, wp: 30, bp: 1 } ]
+  };
 
-  if (unlockedWeapons.includes('sniper')) {
-    document.getElementById('craft-sniper-card').classList.add('already-owned');
-    craftSniperBtn.textContent = 'СОБРАНО';
-    craftSniperBtn.setAttribute('disabled', 'true');
-    craftSniperBtn.className = 'btn secondary-btn';
-  } else {
-    document.getElementById('craft-sniper-card').classList.remove('already-owned');
-    craftSniperBtn.textContent = 'СОБРАТЬ (7с)';
-    craftSniperBtn.removeAttribute('disabled');
-    craftSniperBtn.className = 'btn success-btn';
-  }
+  const WeaponUpgrades = {
+    pistol: [
+      "Базовое табельное оружие. Отличный резерв.",
+      "Ур.2: Урон увеличен до 6.",
+      "Ур.3: Скорострельность 6 выстр/сек.",
+      "Ур.4: Пробивает 1 цель насквозь.",
+      "Ур.5: Разрывные пули (АоЕ урон и отталкивание)."
+    ],
+    shotgun: [
+      "Ближний бой. Дробь 8x6 в конусе 40°.",
+      "Ур.2: 12 дробин (вместо 8).",
+      "Ур.3: Конус сужается до 25° (выше кучность).",
+      "Ур.4: Дробь пробивает врагов насквозь.",
+      "Ур.5: Дыхание дракона (поджигает врагов)."
+    ],
+    ar: [
+      "Универсальный темп (8/с), урон 7.",
+      "Ур.2: Теплоемкость увеличена (+50%).",
+      "Ур.3: Темп 12 выстр/сек.",
+      "Ур.4: Урон 10.",
+      "Ур.5: Кровопийца (лечит 1 HP за 3 попадания)."
+    ],
+    sniper: [
+      "Высокий урон (80), пробивает до 3 целей.",
+      "Ур.2: Пробивает до 5 целей.",
+      "Ур.3: Урон 120.",
+      "Ур.4: Скорострельность х1.5.",
+      "Ур.5: ЭМ-импульс (оглушает задетых на 1с)."
+    ],
+    hmg: [
+      "Огромный темп (14/с), урон 6.",
+      "Ур.2: Урон 9.",
+      "Ур.3: Темп 20 выстр/сек.",
+      "Ур.4: Стрельба без замедления.",
+      "Ур.5: Энергощит во время стрельбы."
+    ],
+    flamethrower: [
+      "Выжигает сектор 30°, поджигает.",
+      "Ур.2: Конус 45°, дальность +30%.",
+      "Ур.3: До 5 стаков горения.",
+      "Ур.4: Урон горения х2.",
+      "Ур.5: Напалм (оставляет огненные лужи)."
+    ],
+    tesla: [
+      "Цепная молния, до 3 целей.",
+      "Ур.2: Прыгает на 5 целей.",
+      "Ур.3: Оглушение 1.0с.",
+      "Ур.4: Радиус цепи х1.5.",
+      "Ур.5: Накладывает Хрупкость (+30% урона)."
+    ],
+    crossbow: [
+      "Токсичные лужи (6 урона/с).",
+      "Ур.2: Урон луж 12/с.",
+      "Ур.3: Радиус луж х1.5.",
+      "Ур.4: Замедление в лужах 50%.",
+      "Ур.5: Едкая кислота (игнорирует щиты)."
+    ]
+  };
 
-  if (unlockedWeapons.includes('hmg')) {
-    document.getElementById('craft-hmg-card').classList.add('already-owned');
-    craftHmgBtn.textContent = 'СОБРАНО';
-    craftHmgBtn.setAttribute('disabled', 'true');
-    craftHmgBtn.className = 'btn secondary-btn';
-  } else {
-    document.getElementById('craft-hmg-card').classList.remove('already-owned');
-    craftHmgBtn.textContent = 'СОБРАТЬ (7с)';
-    craftHmgBtn.removeAttribute('disabled');
-    craftHmgBtn.className = 'btn success-btn';
-  }
-
-  if (unlockedWeapons.includes('flamethrower')) {
-    document.getElementById('craft-flamethrower-card').classList.add('already-owned');
-    craftFlamethrowerBtn.textContent = 'СОБРАНО';
-    craftFlamethrowerBtn.setAttribute('disabled', 'true');
-    craftFlamethrowerBtn.className = 'btn secondary-btn';
-  } else {
-    document.getElementById('craft-flamethrower-card').classList.remove('already-owned');
-    craftFlamethrowerBtn.textContent = 'СОБРАТЬ (7с)';
-    craftFlamethrowerBtn.removeAttribute('disabled');
-    craftFlamethrowerBtn.className = 'btn success-btn';
-  }
-
-  if (unlockedWeapons.includes('tesla')) {
-    document.getElementById('craft-tesla-card').classList.add('already-owned');
-    craftTeslaBtn.textContent = 'СОБРАНО';
-    craftTeslaBtn.setAttribute('disabled', 'true');
-    craftTeslaBtn.className = 'btn secondary-btn';
-  } else {
-    document.getElementById('craft-tesla-card').classList.remove('already-owned');
-    craftTeslaBtn.textContent = 'СОБРАТЬ (7с)';
-    craftTeslaBtn.removeAttribute('disabled');
-    craftTeslaBtn.className = 'btn success-btn';
-  }
-
-  if (unlockedWeapons.includes('crossbow')) {
-    document.getElementById('craft-crossbow-card').classList.add('already-owned');
-    craftCrossbowBtn.textContent = 'СОБРАНО';
-    craftCrossbowBtn.setAttribute('disabled', 'true');
-    craftCrossbowBtn.className = 'btn secondary-btn';
-  } else {
-    document.getElementById('craft-crossbow-card').classList.remove('already-owned');
-    craftCrossbowBtn.textContent = 'СОБРАТЬ (7с)';
-    craftCrossbowBtn.removeAttribute('disabled');
-    craftCrossbowBtn.className = 'btn success-btn';
-  }
-
-  // Lock cards dynamically if lacking resources
-  const myScrap = localPlayerState.scrap;
+  const myScrap = localPlayerState.scrap || 0;
   const myWp = localPlayerState.wp || 0;
-  const myBp10 = localPlayerState.bp10 || 0;
-  const myBp20 = localPlayerState.bp20 || 0;
+  const myBp = (localPlayerState.bp10 || 0) + (localPlayerState.bp20 || 0) + (localPlayerState.bp30 || 0);
 
-  if (!unlockedWeapons.includes('shotgun')) {
-    if (myScrap < 15) {
-      craftShotgunBtn.setAttribute('disabled', 'true');
-      craftShotgunBtn.textContent = 'НЕДОСТАТОЧНО ХЛАМА';
+  ['pistol', 'shotgun', 'ar', 'sniper', 'hmg', 'flamethrower', 'tesla', 'crossbow'].forEach(wName => {
+    const btn = document.getElementById(`craft-${wName}-btn`);
+    const card = document.getElementById(`craft-${wName}-card`);
+    if (!btn || !card) return; // fail-safe
+
+    const costDiv = card.querySelector('.item-cost');
+    const descP = card.querySelector('p');
+    
+    let currentLevel = unlockedWeapons[wName] ? unlockedWeapons[wName].level : 0;
+    
+    let newDesc = '';
+    if (currentLevel === 0) {
+      newDesc = WeaponUpgrades[wName][0];
+    } else if (currentLevel < 5) {
+      newDesc = `<span style="color: #94a3b8;">Текущий Ур.${currentLevel}</span><br><span style="color: #00ffc8; font-weight:bold; margin-top:5px; display:inline-block;">След: ${WeaponUpgrades[wName][currentLevel]}</span>`;
+    } else {
+      newDesc = `<span style="color: #ffd700; font-weight:bold; font-size: 0.8rem;">Максимальный Уровень!<br>${WeaponUpgrades[wName][4]}</span>`;
     }
-  }
-  if (!unlockedWeapons.includes('ar')) {
-    if (myScrap < 20) {
-      craftArBtn.setAttribute('disabled', 'true');
-      craftArBtn.textContent = 'НЕДОСТАТОЧНО ХЛАМА';
+    if (descP.innerHTML !== newDesc) descP.innerHTML = newDesc;
+    
+    if (currentLevel >= 5) {
+      card.classList.add('already-owned');
+      btn.textContent = 'МАКС. УРОВЕНЬ';
+      btn.setAttribute('disabled', 'true');
+      btn.className = 'btn secondary-btn';
+      costDiv.textContent = 'УЛУЧШЕНИЙ НЕТ';
+      return;
     }
-  }
-  if (!unlockedWeapons.includes('sniper')) {
-    if (myWp < 10 || myBp10 < 1) {
-      craftSniperBtn.setAttribute('disabled', 'true');
-      craftSniperBtn.textContent = 'НЕДОСТАТОЧНО WP/bp10';
+
+    card.classList.remove('already-owned');
+    let targetIndex = currentLevel; 
+    if (wName === 'pistol') targetIndex = currentLevel - 1;
+
+    const cost = costTable[wName][targetIndex];
+    // fallback if no cost
+    if (!cost) return;
+
+    let penaltyMult = localPlayerState.autophagyPenalty > 0 ? 1.5 : 1.0;
+    
+    let scrapReq = Math.ceil(cost.scrap * penaltyMult);
+    let wpReq = Math.ceil(cost.wp * penaltyMult);
+    let bpReq = cost.bp;
+
+    let costStr = '';
+    if (scrapReq > 0) costStr += `⚙️ ${scrapReq} SCRAP `;
+    if (wpReq > 0) costStr += `🔧 ${wpReq} WP `;
+    if (bpReq > 0) costStr += `📜 ${bpReq} BP`;
+    costStr = costStr.trim();
+    if (costDiv.textContent !== costStr) costDiv.textContent = costStr;
+
+    if (myScrap < scrapReq || myWp < wpReq || myBp < bpReq) {
+      if (!btn.hasAttribute('disabled')) btn.setAttribute('disabled', 'true');
+      if (btn.textContent !== 'НЕДОСТАТОЧНО РЕСУРСОВ') btn.textContent = 'НЕДОСТАТОЧНО РЕСУРСОВ';
+      if (btn.className !== 'btn secondary-btn') btn.className = 'btn secondary-btn';
+    } else {
+      if (btn.hasAttribute('disabled')) btn.removeAttribute('disabled');
+      const targetText = currentLevel === 0 ? 'СОБРАТЬ (7с)' : `УЛУЧШИТЬ ДО УР. ${currentLevel + 1} (7с)`;
+      if (btn.textContent !== targetText) btn.textContent = targetText;
+      if (btn.className !== 'btn success-btn') btn.className = 'btn success-btn';
     }
-  }
-  if (!unlockedWeapons.includes('hmg')) {
-    if (myWp < 15 || myBp10 < 1) {
-      craftHmgBtn.setAttribute('disabled', 'true');
-      craftHmgBtn.textContent = 'НЕДОСТАТОЧНО WP/bp10';
-    }
-  }
-  if (!unlockedWeapons.includes('flamethrower')) {
-    if (myWp < 12 || myBp10 < 1 || myBp20 < 1) {
-      craftFlamethrowerBtn.setAttribute('disabled', 'true');
-      craftFlamethrowerBtn.textContent = 'НЕДОСТАТОЧНО WP/bp10/bp20';
-    }
-  }
-  if (!unlockedWeapons.includes('tesla')) {
-    if (myWp < 15 || myBp10 < 1 || myBp20 < 1) {
-      craftTeslaBtn.setAttribute('disabled', 'true');
-      craftTeslaBtn.textContent = 'НЕДОСТАТОЧНО WP/bp10/bp20';
-    }
-  }
-  if (!unlockedWeapons.includes('crossbow')) {
-    if (myWp < 10 || myBp10 < 1 || myBp20 < 1) {
-      craftCrossbowBtn.setAttribute('disabled', 'true');
-      craftCrossbowBtn.textContent = 'НЕДОСТАТОЧНО WP/bp10/bp20';
-    }
-  }
+  });
 }
 
 let reconnectInterval;
@@ -2056,31 +2122,31 @@ function handleKeyDown(e) {
   if (key === '1') {
     socket.emit('switch-weapon', { weaponName: 'pistol' });
   } else if (key === '2') {
-    if (localPlayerState.weapons.includes('shotgun')) {
+    if (localPlayerState.weapons['shotgun']) {
       socket.emit('switch-weapon', { weaponName: 'shotgun' });
     }
   } else if (key === '3') {
-    if (localPlayerState.weapons.includes('ar')) {
+    if (localPlayerState.weapons['ar']) {
       socket.emit('switch-weapon', { weaponName: 'ar' });
     }
   } else if (key === '4') {
-    if (localPlayerState.weapons.includes('sniper')) {
+    if (localPlayerState.weapons['sniper']) {
       socket.emit('switch-weapon', { weaponName: 'sniper' });
     }
   } else if (key === '5') {
-    if (localPlayerState.weapons.includes('hmg')) {
+    if (localPlayerState.weapons['hmg']) {
       socket.emit('switch-weapon', { weaponName: 'hmg' });
     }
   } else if (key === '6') {
-    if (localPlayerState.weapons.includes('flamethrower')) {
+    if (localPlayerState.weapons['flamethrower']) {
       socket.emit('switch-weapon', { weaponName: 'flamethrower' });
     }
   } else if (key === '7') {
-    if (localPlayerState.weapons.includes('tesla')) {
+    if (localPlayerState.weapons['tesla']) {
       socket.emit('switch-weapon', { weaponName: 'tesla' });
     }
   } else if (key === '8') {
-    if (localPlayerState.weapons.includes('crossbow')) {
+    if (localPlayerState.weapons['crossbow']) {
       socket.emit('switch-weapon', { weaponName: 'crossbow' });
     }
   }
@@ -3503,12 +3569,15 @@ function syncScrapRender() {
     
     if (!window.scrapCache) {
       window.scrapCache = {
-        wpGeo: new THREE.CylinderGeometry(0.2, 0.2, 0.1, 8),
-        wpMat: new THREE.MeshStandardMaterial({ color: 0xff7700, roughness: 0.3, metalness: 0.9, emissive: 0x331100 }),
-        bpGeo: new THREE.CylinderGeometry(0.08, 0.08, 0.3, 8),
-        bpMat: new THREE.MeshStandardMaterial({ color: 0x00ffff, roughness: 0.5, metalness: 0.2, emissive: 0x003333 }),
-        scrapGeo: new THREE.BoxGeometry(0.3, 0.3, 0.3),
-        scrapMat: new THREE.MeshStandardMaterial({ color: 0x8a9ba8, roughness: 0.2, metalness: 0.8 })
+        // Weapon Parts: Dark Green Ammo Box
+        wpGeo: new THREE.BoxGeometry(0.3, 0.2, 0.4),
+        wpMat: new THREE.MeshStandardMaterial({ color: 0x4a5d23, roughness: 0.8, metalness: 0.2 }),
+        // Blueprints: Flat document folder
+        bpGeo: new THREE.BoxGeometry(0.4, 0.05, 0.3),
+        bpMat: new THREE.MeshStandardMaterial({ color: 0xddddcc, roughness: 0.9, emissive: 0x222211 }),
+        // Scrap: Rusty gear/box
+        scrapGeo: new THREE.BoxGeometry(0.2, 0.2, 0.2),
+        scrapMat: new THREE.MeshStandardMaterial({ color: 0x5c4033, roughness: 0.9, metalness: 0.5 })
       };
     }
     

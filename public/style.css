@@ -1301,6 +1301,13 @@ input[type="text"]:focus {
   text-shadow: 0 0 5px rgba(0, 255, 200, 0.4);
 }
 
+.draft-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 15px;
+  justify-content: center;
+}
+
 .crafting-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1548,4 +1555,164 @@ input[type="text"]:focus {
     max-height: 100vh;
     overflow-y: auto;
   }
+}
+
+/* MILITARY VISUAL OVERHAUL STYLES */
+
+/* Hotbar Overhaul */
+.hotbar-wrapper {
+  background: rgba(15, 18, 12, 0.95) !important;
+  border: 2px solid #3a4231 !important;
+  box-shadow: inset 0 0 15px rgba(0,0,0,0.8), 0 5px 15px rgba(0,0,0,0.5) !important;
+  border-radius: 4px !important;
+}
+.hotbar-slots {
+  background: #11140e;
+  padding: 4px;
+  border-radius: 4px;
+  border: 1px solid #20261a;
+}
+.hotbar-slot {
+  width: 44px !important;
+  height: 44px !important;
+  background: #1c2117 !important;
+  border: 1px solid #333a2b !important;
+  border-radius: 2px !important;
+  box-shadow: inset 0 0 10px rgba(0,0,0,0.9) !important;
+  padding: 0px !important;
+  position: relative;
+}
+.hotbar-slot.active {
+  background: #2a3322 !important;
+  border-color: #7b8f61 !important;
+  box-shadow: inset 0 0 15px rgba(123, 143, 97, 0.4), 0 0 10px rgba(123, 143, 97, 0.5) !important;
+}
+.hotbar-slot.locked {
+  background: #0a0c08 !important;
+  opacity: 0.4 !important;
+  filter: grayscale(100%) contrast(150%) !important;
+}
+.weapon-icon {
+  width: 100%;
+  height: 100%;
+  max-width: 40px;
+  max-height: 40px;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+  border-radius: 2px;
+}
+.hotbar-key {
+  background: rgba(0,0,0,0.8);
+  padding: 1px 4px;
+  border-radius: 2px;
+  border: 1px solid #4a543e;
+  color: #7b8f61 !important;
+  font-weight: bold;
+}
+
+/* Workbench Overhaul */
+.workbench-card {
+  background: #151812 !important;
+  border: 2px solid #3a4231 !important;
+  box-shadow: inset 0 0 50px rgba(0,0,0,0.9), 0 10px 30px rgba(0,0,0,0.8) !important;
+  background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.1) 10px, rgba(0,0,0,0.1) 20px) !important;
+}
+.workbench-header h2 span {
+  color: #a4b38d !important;
+  font-family: var(--font-mono) !important;
+  letter-spacing: 4px !important;
+  text-shadow: 2px 2px 0 #000 !important;
+}
+.craft-item-card {
+  position: relative;
+  background: #1c2117 !important;
+  border: 1px solid #333a2b !important;
+  box-shadow: inset 0 0 20px rgba(0,0,0,0.8) !important;
+  overflow: hidden;
+  z-index: 1;
+}
+.craft-item-card:hover {
+  background: #252b1e !important;
+  border-color: #556147 !important;
+}
+.craft-bg-icon {
+  position: absolute;
+  right: -20px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 120%;
+  opacity: 0.15;
+  z-index: -1;
+  pointer-events: none;
+  filter: contrast(120%) grayscale(50%);
+}
+.craft-item-card:hover .craft-bg-icon {
+  opacity: 0.3;
+}
+.inline-bp-icon {
+  height: 1.2rem;
+  vertical-align: middle;
+  border-radius: 2px;
+  border: 1px solid #4a543e;
+}
+.item-cost {
+  color: #d1b26f !important;
+  background: rgba(0,0,0,0.6);
+  padding: 4px 8px;
+  border-radius: 2px;
+  border: 1px dashed #5a4b2a;
+  display: inline-block;
+  align-self: flex-start;
+}
+.success-btn {
+  background: #3c4a2d !important;
+  border-color: #5a7042 !important;
+  color: #dbe8c5 !important;
+  font-family: var(--font-mono) !important;
+  letter-spacing: 2px !important;
+  box-shadow: inset 0 0 10px rgba(0,0,0,0.5) !important;
+}
+.success-btn:hover {
+  background: #4e613b !important;
+  border-color: #7b8f61 !important;
+}
+
+/* DRAFT MODAL STYLES */
+.modal-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  pointer-events: auto;
+}
+
+.modal-content {
+  background: rgba(20, 22, 20, 0.95);
+  border: 2px solid #5a6650;
+  border-radius: 4px;
+  padding: 30px;
+  box-shadow: 0 0 30px rgba(0, 0, 0, 0.8), inset 0 0 20px rgba(90, 102, 80, 0.2);
+  width: 90%;
+  max-width: 800px;
+}
+
+.modal-title {
+  font-family: var(--font-title);
+  font-size: 2rem;
+  letter-spacing: 2px;
+  margin-bottom: 5px;
+}
+
+.draft-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  margin-top: 20px;
 }

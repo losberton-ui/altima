@@ -216,16 +216,16 @@
             </div>
           </div>
 
-          <!-- The Hotbar Slots -->
+          <!-- The Hotbar Slots (Military Style) -->
           <div class="hotbar-slots">
-            <button id="select-pistol" class="hotbar-slot active" title="Клавиша 1: Пистолет"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M4,17 L7,17 L7,12 L19,12 L19,8 L4,8 Z"/></svg><div class="hotbar-key">1</div></button>
-            <button id="select-shotgun" class="hotbar-slot locked" disabled title="Скрафтите Дробовик (Клавиша 2)"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2,14 L20,14 L20,10 L7,10 L7,12 L2,12 Z"/></svg><div class="hotbar-key">2</div></button>
-            <button id="select-ar" class="hotbar-slot locked" disabled title="Скрафтите Автомат (Клавиша 3)"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2,15 L6,15 L6,13 L20,13 L20,9 L10,9 L10,7 L6,7 L6,9 L2,9 Z"/></svg><div class="hotbar-key">3</div></button>
-            <button id="select-sniper" class="hotbar-slot locked" disabled title="Скрафтите Снайперку (Клавиша 4)"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M0,13 L22,13 L22,11 L10,11 L10,9 L6,9 L6,11 L0,11 Z"/></svg><div class="hotbar-key">4</div></button>
-            <button id="select-hmg" class="hotbar-slot locked" disabled title="Скрафтите Пулемет (Клавиша 5)"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2,15 L8,15 L8,13 L22,13 L22,7 L8,7 L8,9 L2,9 Z"/></svg><div class="hotbar-key">5</div></button>
-            <button id="select-flamethrower" class="hotbar-slot locked" disabled title="Скрафтите Огнемет (Клавиша 6)"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2,15 L6,15 L6,13 L18,13 L18,11 L22,11 L22,9 L18,9 L18,11 L6,11 L6,9 L2,9 Z"/></svg><div class="hotbar-key">6</div></button>
-            <button id="select-tesla" class="hotbar-slot locked" disabled title="Скрафтите Теслу (Клавиша 7)"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M4,14 L8,14 L8,12 L16,12 L16,8 L12,8 L12,10 L4,10 Z"/></svg><div class="hotbar-key">7</div></button>
-            <button id="select-crossbow" class="hotbar-slot locked" disabled title="Скрафтите Арбалет (Клавиша 8)"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2,12 L20,12 M18,8 L22,12 L18,16 M10,6 L10,18 M8,8 L12,12 L8,16" stroke="currentColor" stroke-width="2" fill="none"/></svg><div class="hotbar-key">8</div></button>
+            <button id="select-pistol" class="hotbar-slot active" title="Клавиша 1: Пистолет"><img src="icons/wp_pistol.png" class="weapon-icon"><div class="hotbar-key">1</div></button>
+            <button id="select-shotgun" class="hotbar-slot locked" disabled title="Скрафтите Дробовик (Клавиша 2)"><img src="icons/wp_shotgun.png" class="weapon-icon"><div class="hotbar-key">2</div></button>
+            <button id="select-ar" class="hotbar-slot locked" disabled title="Скрафтите Автомат (Клавиша 3)"><img src="icons/wp_ar.png" class="weapon-icon"><div class="hotbar-key">3</div></button>
+            <button id="select-sniper" class="hotbar-slot locked" disabled title="Скрафтите Снайперку (Клавиша 4)"><img src="icons/wp_sniper.png" class="weapon-icon"><div class="hotbar-key">4</div></button>
+            <button id="select-hmg" class="hotbar-slot locked" disabled title="Скрафтите Пулемет (Клавиша 5)"><img src="icons/wp_hmg.png" class="weapon-icon"><div class="hotbar-key">5</div></button>
+            <button id="select-flamethrower" class="hotbar-slot locked" disabled title="Скрафтите Огнемет (Клавиша 6)"><img src="icons/wp_flamethrower.png" class="weapon-icon"><div class="hotbar-key">6</div></button>
+            <button id="select-tesla" class="hotbar-slot locked" disabled title="Скрафтите Теслу (Клавиша 7)"><img src="icons/wp_tesla.png" class="weapon-icon"><div class="hotbar-key">7</div></button>
+            <button id="select-crossbow" class="hotbar-slot locked" disabled title="Скрафтите Арбалет (Клавиша 8)"><img src="icons/wp_crossbow.png" class="weapon-icon"><div class="hotbar-key">8</div></button>
           </div>
 
           <!-- Active Weapon Gauge (Overlays the active slot or sits right below the slots) -->
@@ -275,46 +275,60 @@
             </div>
             
             <div class="crafting-grid">
+              <div class="craft-item-card" id="craft-pistol-card">
+                <img src="icons/wp_pistol.png" class="craft-bg-icon">
+                <div class="item-header">ПИСТОЛЕТ</div>
+                <p>Базовое оружие (бесконечный магазин). Улучшение повышает урон и скорострельность.</p>
+                <div class="item-cost">⚙️ 10 SCRAP</div>
+                <button id="craft-pistol-btn" class="btn success-btn">УЛУЧШИТЬ (7с)</button>
+              </div>
               <div class="craft-item-card" id="craft-shotgun-card">
+                <img src="icons/wp_shotgun.png" class="craft-bg-icon">
                 <div class="item-header">ДРОБОВИК</div>
                 <p>Ближний бой. Убойная дробь 8x6 в конусе 40°. Сильно отбрасывает.</p>
                 <div class="item-cost">⚙️ 15 SCRAP</div>
                 <button id="craft-shotgun-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
               </div>
               <div class="craft-item-card" id="craft-ar-card">
+                <img src="icons/wp_ar.png" class="craft-bg-icon">
                 <div class="item-header">АВТОМАТ</div>
                 <p>Универсальный темп (8/с), урон 7. Перегревается через 4.5с зажима.</p>
                 <div class="item-cost">⚙️ 20 SCRAP</div>
                 <button id="craft-ar-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
               </div>
               <div class="craft-item-card" id="craft-sniper-card">
+                <img src="icons/wp_sniper.png" class="craft-bg-icon">
                 <div class="item-header">СНАЙПЕРКА</div>
                 <p>Высокий урон (80), пробивает до 3 целей. Замедляет при прицеливании.</p>
-                <div class="item-cost">🔧 10 WP + 📜A 1</div>
+                <div class="item-cost">🔧 10 WP + <img src="icons/bp_a.png" class="inline-bp-icon"> 1</div>
                 <button id="craft-sniper-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
               </div>
               <div class="craft-item-card" id="craft-hmg-card">
+                <img src="icons/wp_hmg.png" class="craft-bg-icon">
                 <div class="item-header">ПУЛЕМЕТ</div>
                 <p>Огромный темп (14/с), урон 6. Сильно замедляет при стрельбе.</p>
-                <div class="item-cost">🔧 15 WP + 📜A 1</div>
+                <div class="item-cost">🔧 15 WP + <img src="icons/bp_a.png" class="inline-bp-icon"> 1</div>
                 <button id="craft-hmg-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
               </div>
               <div class="craft-item-card" id="craft-flamethrower-card">
+                <img src="icons/wp_flamethrower.png" class="craft-bg-icon">
                 <div class="item-header">ОГНЕМЕТ</div>
                 <p>Выжигает сектор 30°, урон горением до 3х стаков. Тратит энерго-ячейки.</p>
-                <div class="item-cost">🔧 12 WP + 📜A 1 + 📜B 1</div>
+                <div class="item-cost">🔧 12 WP + <img src="icons/bp_a.png" class="inline-bp-icon"> 1 + <img src="icons/bp_b.png" class="inline-bp-icon"> 1</div>
                 <button id="craft-flamethrower-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
               </div>
               <div class="craft-item-card" id="craft-tesla-card">
+                <img src="icons/wp_tesla.png" class="craft-bg-icon">
                 <div class="item-header">ТЕСЛА-ВИНТОВКА</div>
                 <p>Цепная молния поражает до 3 целей, накладывая оглушение 0.5с.</p>
-                <div class="item-cost">🔧 15 WP + 📜A 1 + 📜B 1</div>
+                <div class="item-cost">🔧 15 WP + <img src="icons/bp_a.png" class="inline-bp-icon"> 1 + <img src="icons/bp_b.png" class="inline-bp-icon"> 1</div>
                 <button id="craft-tesla-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
               </div>
               <div class="craft-item-card" id="craft-crossbow-card">
+                <img src="icons/wp_crossbow.png" class="craft-bg-icon">
                 <div class="item-header">АРБАЛЕТ</div>
                 <p>Выпускает тактические стрелы, оставляющие токсичные лужи (6 урона/с).</p>
-                <div class="item-cost">🔧 10 WP + 📜A 1 + 📜B 1</div>
+                <div class="item-cost">🔧 10 WP + <img src="icons/bp_a.png" class="inline-bp-icon"> 1 + <img src="icons/bp_b.png" class="inline-bp-icon"> 1</div>
                 <button id="craft-crossbow-btn" class="btn success-btn">СОБРАТЬ (7с)</button>
               </div>
             </div>
@@ -329,6 +343,18 @@
               <button id="transfer-15-btn" class="btn secondary-btn">⚙️ ОТДАТЬ 15</button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- DRAFT PHASE MODAL -->
+      <div id="draft-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 800px; text-align: center;">
+          <h2 class="modal-title blink-text-classic" style="color: #ffd700;">СНАБЖЕНИЕ КОМАНДОВАНИЯ</h2>
+          <p style="margin-bottom: 20px;">ВЫБЕРИТЕ УЛУЧШЕНИЕ ОПЕРАТОРА (<span id="draft-timer-text">30.0</span>с)</p>
+          <div id="draft-choices-container" class="draft-grid">
+            <!-- Draft cards injected by JS -->
+          </div>
+          <p id="draft-waiting-text" class="hidden" style="margin-top: 20px; color: #a855f7;">Ожидание напарника...</p>
         </div>
       </div>
 
