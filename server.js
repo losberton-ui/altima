@@ -15,6 +15,20 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// RPG Perks Definitions
+const PERKS = [
+  { id: 'vampirism', name: 'Вампиризм', desc: '+2% шанс вылечить 5 HP при убийстве (макс 10%)', type: 'player' },
+  { id: 'autophagy', name: 'Аутофагия', desc: 'Ускоренный хил, но макс. здоровье снижено на 25', type: 'player' },
+  { id: 'overclocking', name: 'Разгон', desc: '+10% урона, но перегрев/расход на 15% быстрее', type: 'player' },
+  { id: 'tank', name: 'Танк', desc: '+15 Макс. HP, но скорость -5%', type: 'player' },
+  { id: 'glass_cannon', name: 'Стеклянная пушка', desc: '+20% урона, но входящий урон +15%', type: 'player' },
+  { id: 'engineering', name: 'Инженерия', desc: '+20% к скорости крафта', type: 'player' },
+  { id: 'adrenaline', name: 'Адреналин', desc: '+15% к скорости бега при HP ниже 30%', type: 'player' },
+  { id: 'sprinter', name: 'Спринтер', desc: '+5% к пассивной скорости бега', type: 'player' },
+  { id: 'backup_battery', name: 'Резервный аккумулятор', desc: '+20% энергоемкости Теслы и Огнемета', type: 'player' },
+  { id: 'magnet', name: 'Магнит', desc: '+2м к радиусу сбора ресурсов', type: 'player' }
+];
+
 const rooms = {};
 
 function generateRoomCode() {
@@ -143,16 +157,22 @@ function spawnPoisonPuddle(room, x, z, ownerId) {
     const idx = room.puddles.indexOf(oldest);
     if (idx !== -1) room.puddles.splice(idx, 1);
   }
+  
+  const owner = room.players[ownerId];
+  const level = (owner && owner.weapons['crossbow']) ? owner.weapons['crossbow'].level : 1;
+  const radius = level >= 3 ? 3.0 : 2.0;
+
   const puddleId = 'puddle_' + (++room.scrapIdCounter);
   room.puddles.push({
     id: puddleId,
     x: x,
     z: z,
-    radius: 2.0,
+    radius: radius,
+    level: level,
     endTime: Date.now() + 5000,
     ownerId: ownerId
   });
-  io.to(room.roomCode).emit('puddle-spawn', { id: puddleId, x, z, radius: 2.0 });
+  io.to(room.roomCode).emit('puddle-spawn', { id: puddleId, x, z, radius: radius });
 }
 
 function handleBarrelExplosion(room, barrelId) {
@@ -172,7 +192,6 @@ function handleBarrelExplosion(room, barrelId) {
     const dist = Math.hypot(player.x - barrel.x, player.z - barrel.z);
     if (dist <= radius) {
       const dmg = maxDmg * (1 - dist / radius);
-      player.hp = Math.max(0, player.hp - dmg);
       
       const angle = Math.atan2(player.x - barrel.x, player.z - barrel.z);
       player.x += Math.sin(angle) * 2.0;
@@ -182,11 +201,7 @@ function handleBarrelExplosion(room, barrelId) {
       player.x = Math.max(-ARENA_WIDTH / 2 + margin, Math.min(ARENA_WIDTH / 2 - margin, player.x));
       player.z = Math.max(-ARENA_DEPTH / 2 + margin, Math.min(ARENA_DEPTH / 2 - margin, player.z));
       
-      if (player.hp <= 0) {
-        triggerDowned(room, player.playerId);
-      }
-      
-      io.to(room.roomCode).emit('player-hit', { playerId: player.playerId, hp: player.hp, damage: dmg });
+      applyPlayerDamage(room, player.playerId, dmg);
     }
   }
   
@@ -270,6 +285,15 @@ function handleEnemyDeath(activeRoom, enemyId, owner, killerWeapon = null) {
 
   // Combo multiplier tracking (decay after 3s, max x10)
   const now = Date.now();
+
+  // Vampirism Perk Check
+  if (owner && owner.vampirismChance > 0 && owner.hp > 0 && !owner.isDowned) {
+    if (Math.random() < owner.vampirismChance) {
+      owner.hp = Math.min(owner.maxHp + (owner.maxHpBonus || 0), owner.hp + 5);
+      io.to(activeRoom.roomCode).emit('vampirism-heal', { playerId: owner.playerId, hp: owner.hp });
+    }
+  }
+
   if (!activeRoom.combo) activeRoom.combo = { count: 0, multiplier: 1, lastKillTime: 0 };
   if (now - activeRoom.combo.lastKillTime < 3000) {
     activeRoom.combo.count = Math.min(10, activeRoom.combo.count + 1);
@@ -291,7 +315,22 @@ function handleEnemyDeath(activeRoom, enemyId, owner, killerWeapon = null) {
     });
   }
 
-  if (owner) owner.kills += 1;
+  if (owner) {
+    owner.kills += 1;
+    // Flamethrower L5: Napalm on death
+    if (killerWeapon === 'flamethrower' && owner.weapons['flamethrower'] && owner.weapons['flamethrower'].level >= 5) {
+      if (!activeRoom.puddles) activeRoom.puddles = [];
+      activeRoom.puddles.push({
+        id: 'napalm_' + (++activeRoom.scrapIdCounter),
+        x: enemy.x,
+        z: enemy.z,
+        radius: 2.5,
+        endTime: now + 4000, // 4 seconds
+        ownerId: owner.playerId,
+        type: 'fire'
+      });
+    }
+  }
   if (deadType === 'boss_general') {
     // VICTORY! Final boss defeated
     activeRoom.gameStarted = false;
@@ -467,7 +506,7 @@ function startGameLoop(roomCode) {
       const p2 = activeRoom.players[p2Id];
 
       // Game Over check: all players are downed or dead
-      const aliveAndUpPlayers = Object.values(activeRoom.players).filter(p => !p.disconnected && p.hp > 0 && !p.isDowned);
+      const aliveAndUpPlayers = Object.values(activeRoom.players).filter(p => !p.disconnected && p.hp > 0 && (!p.isDowned || p.autoReviveTimer !== undefined));
       if (aliveAndUpPlayers.length === 0 && Object.keys(activeRoom.players).length > 0) {
         console.log(`All players defeated in room ${roomCode}. Game Over.`);
         activeRoom.gameStarted = false;
@@ -497,7 +536,6 @@ function startGameLoop(roomCode) {
           activeRoom.bullets = [];
           activeRoom.projectiles = [];
           activeRoom.scrap = {}; // Clear scrap at the START of the new wave, giving players the whole intermission to collect it
-          
           playerIds.forEach(pId => {
             const p = activeRoom.players[pId];
             if (p) p.scrapTransferredThisRound = 0;
@@ -587,8 +625,8 @@ function startGameLoop(roomCode) {
                 activeRoom.enemies[eId2] = {
                   id: eId2, type: isShooter ? 'shooter' : 'tank',
                   x: portal[0] + (Math.random()-0.5)*2, z: portal[1] + (Math.random()-0.5)*2,
-                  hp: (isShooter ? 25 : 80) * scalingFactorHp2,
-                  maxHp: (isShooter ? 25 : 80) * scalingFactorHp2,
+                  hp: (isShooter ? 25 : 130) * scalingFactorHp2,
+                  maxHp: (isShooter ? 25 : 130) * scalingFactorHp2,
                   speed: isShooter ? 1.5 : 1.2,
                   damage: (isShooter ? 8 : 15) * scalingFactorDmg2,
                   slowExpires: 0, angle: 0, lastAttackTime: 0, lastShotTime: 0
@@ -598,7 +636,7 @@ function startGameLoop(roomCode) {
               io.to(roomCode).emit('round-started', { round: activeRoom.round, isBoss: true, bossType: 'boss_general' });
 
             } else {
-              const baseBossHp = activeRoom.round === 10 ? 500 : (activeRoom.round === 20 ? 800 : 1200);
+              const baseBossHp = activeRoom.round === 10 ? 1000 : (activeRoom.round === 20 ? 1500 : 2200);
               const bossHp = activeRoom.soloMode ? baseBossHp * 0.70 : baseBossHp;
 
               let bossType = 'boss_hammer';
@@ -678,7 +716,7 @@ function startGameLoop(roomCode) {
                   speed = 1.5;
                 } else if (rand < 0.55) {
                   enemyType = 'tank';
-                  hp = 80 * scalingFactorHp;
+                  hp = 130 * scalingFactorHp;
                   dmg = 15 * scalingFactorDmg;
                   speed = 1.2;
                 } else if (rand < 0.70) {
@@ -706,7 +744,7 @@ function startGameLoop(roomCode) {
                   speed = 1.5;
                 } else if (rand < 0.45) {
                   enemyType = 'tank';
-                  hp = 80 * scalingFactorHp;
+                  hp = 130 * scalingFactorHp;
                   dmg = 15 * scalingFactorDmg;
                   speed = 1.2;
                 } else if (rand < 0.60) {
@@ -723,7 +761,7 @@ function startGameLoop(roomCode) {
                   speed = 1.5;
                 } else if (rand < 0.30) {
                   enemyType = 'tank';
-                  hp = 80 * scalingFactorHp;
+                  hp = 130 * scalingFactorHp;
                   dmg = 15 * scalingFactorDmg;
                   speed = 1.2;
                 } else if (rand < 0.50) {
@@ -735,7 +773,7 @@ function startGameLoop(roomCode) {
               } else if (activeRoom.round >= 5) {
                 if (rand < 0.20) {
                   enemyType = 'tank';
-                  hp = 80 * scalingFactorHp;
+                  hp = 130 * scalingFactorHp;
                   dmg = 15 * scalingFactorDmg;
                   speed = 1.2;
                 } else if (rand < 0.40) {
@@ -779,24 +817,31 @@ function startGameLoop(roomCode) {
 
         // Wave completes if all enemies are dead
         if (Object.keys(activeRoom.enemies).length === 0) {
-          activeRoom.roundState = 'intermission';
-          // Intermission safe period: 20s if after boss (round 10, 20, etc.), 12s otherwise
-          const isAfterBoss = ((activeRoom.round) % 10 === 0);
-          activeRoom.roundTimer = isAfterBoss ? 20.0 : 12.0;
+          activeRoom.roundState = 'draft';
+          activeRoom.roundTimer = 15.0; // 15s timer for draft choices
           activeRoom.round += 1;
           activeRoom.bullets = [];
           activeRoom.projectiles = [];
           activeRoom.puddles = [];
           activeRoom.firePuddles = [];
+          activeRoom.draftSelections = {}; // Store player choices
 
-          // Recover all players to full HP and revive if downed
+          // Generate 3 random perk choices for each player
+          const draftChoices = {};
           playerIds.forEach(pId => {
             const p = activeRoom.players[pId];
             if (p) {
-              p.hp = 100;
+              if (p.isDowned || p.hp <= 0) {
+                p.hp = Math.max(20, p.maxHp * 0.2); // Revive with 20% health if they were downed
+              }
+              // Current health carries over otherwise
               p.isDowned = false;
               p.downedTimeLeft = 0;
               p.reviveProgress = 0;
+              
+              // Select 3 random perks
+              let shuffled = PERKS.sort(() => 0.5 - Math.random());
+              draftChoices[pId] = shuffled.slice(0, 3);
             }
           });
 
@@ -811,25 +856,30 @@ function startGameLoop(roomCode) {
                 cz = (Math.random() - 0.5) * (ARENA_DEPTH - 4);
               } while (Math.hypot(cx, cz) < 4.0); // at least 4m from center
               
-              activeRoom.crates[crateId] = {
-                id: crateId,
-                x: cx,
-                z: cz,
-                hp: 30,
-                maxHp: 30
-              };
+              activeRoom.crates[crateId] = { id: crateId, x: cx, z: cz, hp: 30, maxHp: 30 };
             }
-            console.log(`Spawned 2 loot crates in room ${roomCode} for Round ${activeRoom.round}`);
             io.to(roomCode).emit('crates-spawned', { crates: activeRoom.crates });
           }
 
           // Spawn/respawn explosive barrels every 3 rounds
           if (activeRoom.round % 3 === 0) {
             spawnBarrels(activeRoom);
-            console.log(`Respawned explosive barrels for Round ${activeRoom.round} in room ${roomCode}`);
           }
 
-          console.log(`Wave completed in room ${roomCode}. Entering intermission (timer: ${activeRoom.roundTimer}s).`);
+          console.log(`Wave completed in room ${roomCode}. Entering DRAFT phase.`);
+          io.to(roomCode).emit('draft-started', { timer: activeRoom.roundTimer, choices: draftChoices });
+        }
+      } else if (activeRoom.roundState === 'draft') {
+        activeRoom.roundTimer -= TICK_TIME / 1000;
+        
+        const allReady = playerIds.length > 0 && playerIds.every(id => activeRoom.draftSelections[id]);
+        
+        if (activeRoom.roundTimer <= 0 || allReady) {
+          // Proceed to intermission
+          activeRoom.roundState = 'intermission';
+          const isAfterBoss = ((activeRoom.round - 1) % 10 === 0);
+          activeRoom.roundTimer = isAfterBoss ? 20.0 : 12.0;
+          console.log(`Draft completed in room ${roomCode}. Entering intermission.`);
           io.to(roomCode).emit('round-completed', { nextRound: activeRoom.round, timer: activeRoom.roundTimer });
         }
       }
@@ -856,7 +906,7 @@ function startGameLoop(roomCode) {
             p.autoReviveTimer -= TICK_TIME / 1000;
             if (p.autoReviveTimer <= 0) {
               p.isDowned = false;
-              p.hp = 30; // revived with 30 HP
+              p.hp = Math.max(20, Math.floor((p.maxHp + (p.maxHpBonus || 0)) * 0.2));
               delete p.autoReviveTimer;
               console.log(`Player ${p.nickname} self-revived via Syringe.`);
               io.to(roomCode).emit('revive-success', { playerId: pId, hp: p.hp });
@@ -891,19 +941,30 @@ function startGameLoop(roomCode) {
             p.x = Math.max(-ARENA_WIDTH / 2 + margin, Math.min(ARENA_WIDTH / 2 - margin, p.x));
             p.z = Math.max(-ARENA_DEPTH / 2 + margin, Math.min(ARENA_DEPTH / 2 - margin, p.z));
           }
+          
+          const remoteId = playerIds.find(id => id !== pId);
+          const reviver = activeRoom.players[remoteId];
+          if (!reviver || reviver.isDowned || !reviver.shootingIntent || Math.hypot(p.x - reviver.x, p.z - reviver.z) > 2.0) {
+            p.reviveProgress = 0;
+          }
+
           return; // Skip normal crafting/firing logic
         }
 
         // B. Handle Crafting State
         if (p.isCrafting) {
-          p.craftTimeLeft -= TICK_TIME / 1000;
+          p.craftTimeLeft -= (TICK_TIME / 1000) * (p.craftSpeedMult || 1.0);
           if (p.craftTimeLeft <= 0) {
             p.isCrafting = false;
-            if (!p.weapons.includes(p.craftWeapon)) {
-              p.weapons.push(p.craftWeapon);
+            
+            if (!p.weapons[p.craftWeapon]) {
+              p.weapons[p.craftWeapon] = { level: 1 };
+            } else {
+              p.weapons[p.craftWeapon].level = Math.min(5, p.weapons[p.craftWeapon].level + 1);
             }
+            
             p.currentWeapon = p.craftWeapon;
-            console.log(`Player ${p.nickname} সскрафтил ${p.craftWeapon}`);
+            console.log(`Player ${p.nickname} скрафтил/улучшил ${p.craftWeapon}`);
             io.to(roomCode).emit('craft-success', {
               playerId: pId,
               weapon: p.craftWeapon,
@@ -929,7 +990,7 @@ function startGameLoop(roomCode) {
 
             if (teammate.reviveProgress >= 4.0) { // 4s holds
               teammate.isDowned = false;
-              teammate.hp = 30; // revive with 30 HP
+              teammate.hp = Math.max(20, Math.floor((teammate.maxHp + (teammate.maxHpBonus || 0)) * 0.2));
               teammate.reviveProgress = 0;
               p.revives += 1;
               io.to(roomCode).emit('revive-success', { playerId: teammate.playerId, hp: teammate.hp });
@@ -941,7 +1002,10 @@ function startGameLoop(roomCode) {
         }
 
         // D. Calculate movement speed dynamically (with slows/penalties)
-        let activeSpeed = PLAYER_SPEED;
+        let activeSpeed = PLAYER_SPEED * (p.speedMult || 1.0);
+        if (p.hp / (p.maxHp + (p.maxHpBonus || 0)) <= 0.3) {
+          activeSpeed *= (p.adrenalineSpeed || 1.0);
+        }
         
         if (p.currentWeapon === 'shotgun') {
           // no aiming penalty
@@ -982,6 +1046,11 @@ function startGameLoop(roomCode) {
           p.x = tempEntity.x;
           p.z = tempEntity.z;
 
+          // Passive regeneration (regenRate is HP/sec)
+          if (p.regenRate && p.hp > 0 && !p.isDowned) {
+            p.hp = Math.min(p.maxHp + (p.maxHpBonus || 0), p.hp + p.regenRate * (TICK_TIME / 1000));
+          }
+
           const margin = 0.5;
           p.x = Math.max(-ARENA_WIDTH / 2 + margin, Math.min(ARENA_WIDTH / 2 - margin, p.x));
           p.z = Math.max(-ARENA_DEPTH / 2 + margin, Math.min(ARENA_DEPTH / 2 - margin, p.z));
@@ -993,8 +1062,12 @@ function startGameLoop(roomCode) {
           if (!p.shootingIntent || p.isOverheated) {
             p.heat = Math.max(0, p.heat - decay * (TICK_TIME / 1000));
             if (p.heat <= 0) p.isOverheated = false;
+            if (p.currentWeapon === 'hmg') p.hmgFireTime = 0;
+          } else if (p.currentWeapon === 'hmg' && !p.isOverheated && p.shootingIntent) {
+            p.hmgFireTime = (p.hmgFireTime || 0) + (TICK_TIME / 1000);
           }
         } else {
+          p.hmgFireTime = 0;
           if (p.heat > 0) {
             p.heat = Math.max(0, p.heat - 40 * (TICK_TIME / 1000));
             if (p.heat <= 0) p.isOverheated = false;
@@ -1005,7 +1078,7 @@ function startGameLoop(roomCode) {
         const dt = TICK_TIME / 1000;
         if (p.currentWeapon === 'flamethrower') {
           if (p.shootingIntent && !p.isEnergyDepleted) {
-            p.energy = Math.max(0, p.energy - 20 * dt);
+            p.energy = Math.max(0, p.energy - 20 * dt * (p.overclockingMult || 1.0) / (p.batteryCapacityMult || 1.0));
             if (p.energy <= 0) p.isEnergyDepleted = true;
           } else {
             p.energy = Math.min(100, p.energy + 10 * dt);
@@ -1027,12 +1100,22 @@ function startGameLoop(roomCode) {
         // G. Firing Loops
         if (p.shootingIntent && !p.isCrafting && !isActivelyReviving) {
           if (p.currentWeapon === 'pistol') {
-            if (now - p.lastShotTime >= 400) {
+            const level = (p.weapons['pistol'] && p.weapons['pistol'].level) ? p.weapons['pistol'].level : 1;
+            let fireRate = 285; // ~3.5/sec
+            if (level === 2) fireRate = 250; // 4/sec
+            else if (level === 3) fireRate = 222; // ~4.5/sec
+            else if (level >= 4) fireRate = 200; // 5/sec
+
+            if (now - p.lastShotTime >= fireRate) {
               p.lastShotTime = now;
               const vx = Math.sin(p.angle) * 22;
               const vz = Math.cos(p.angle) * 22;
               
-              const basePistolDmg = 5;
+              let basePistolDmg = 5;
+              if (level === 2) basePistolDmg = 5.5;
+              else if (level === 3) basePistolDmg = 6;
+              else if (level >= 4) basePistolDmg = 7;
+              
               const currentPistolDmg = basePistolDmg * (1 + 0.05 * Math.floor((activeRoom.round - 1) / 10));
 
               const bulletId = 'bullet_' + (++activeRoom.bulletIdCounter);
@@ -1052,11 +1135,12 @@ function startGameLoop(roomCode) {
               io.to(roomCode).emit('weapon-fired', { playerId: pId, weapon: 'pistol', x: p.x, z: p.z, angle: p.angle });
             }
           } else if (p.currentWeapon === 'shotgun') {
+            const level = (p.weapons['shotgun'] && p.weapons['shotgun'].level) ? p.weapons['shotgun'].level : 1;
             if (now - p.lastShotTime >= 1480) {
               p.lastShotTime = now;
               
-              const pelletCount = 6;
-              const spread = 40 * Math.PI / 180;
+              const pelletCount = level >= 2 ? 12 : 8;
+              const spread = (level >= 3 ? 25 : 40) * Math.PI / 180;
               const baseAngle = p.angle;
 
               for (let i = 0; i < pelletCount; i++) {
@@ -1074,7 +1158,7 @@ function startGameLoop(roomCode) {
                   z: p.z,
                   vx: vx,
                   vz: vz,
-                  damage: 8,
+                  damage: 6,
                   range: 7.0,
                   distTraveled: 0,
                   type: 'shotgun',
@@ -1087,8 +1171,10 @@ function startGameLoop(roomCode) {
               io.to(roomCode).emit('weapon-fired', { playerId: pId, weapon: 'shotgun', x: p.x, z: p.z, angle: p.angle });
             }
           } else if (p.currentWeapon === 'ar') {
+            const level = (p.weapons['ar'] && p.weapons['ar'].level) ? p.weapons['ar'].level : 1;
+            const fireRate = level >= 3 ? 83 : 120;
             if (!p.isOverheated) {
-              if (now - p.lastShotTime >= 120) {
+              if (now - p.lastShotTime >= fireRate) {
                 p.lastShotTime = now;
                 const vx = Math.sin(p.angle) * 25;
                 const vz = Math.cos(p.angle) * 25;
@@ -1101,21 +1187,23 @@ function startGameLoop(roomCode) {
                   z: p.z,
                   vx: vx,
                   vz: vz,
-                  damage: 7,
+                  damage: level >= 4 ? 10 : 7,
                   range: 18.0,
                   distTraveled: 0,
                   type: 'ar'
                 });
 
-                p.heat = Math.min(100, p.heat + 2.78);
+                const heatInc = level >= 2 ? 1.85 : 2.78;
+                p.heat = Math.min(100, p.heat + heatInc * (p.overclockingMult || 1.0));
                 if (p.heat >= 100) p.isOverheated = true;
 
                 io.to(roomCode).emit('weapon-fired', { playerId: pId, weapon: 'ar', x: p.x, z: p.z, angle: p.angle, heat: p.heat });
               }
             }
           } else if (p.currentWeapon === 'sniper') {
-            // Sniper: 2.5s reload cooldown
-            if (now - p.lastShotTime >= 2480) {
+            const level = (p.weapons['sniper'] && p.weapons['sniper'].level) ? p.weapons['sniper'].level : 1;
+            const fireRate = level >= 4 ? 1650 : 2480;
+            if (now - p.lastShotTime >= fireRate) {
               p.lastShotTime = now;
 
               const vx = Math.sin(p.angle) * 32; // speed 32 m/s
@@ -1129,7 +1217,7 @@ function startGameLoop(roomCode) {
                 z: p.z,
                 vx: vx,
                 vz: vz,
-                damage: 80,
+                damage: level >= 3 ? 120 : 80,
                 range: 30.0, // sniper range 30m
                 distTraveled: 0,
                 type: 'sniper',
@@ -1139,9 +1227,10 @@ function startGameLoop(roomCode) {
               io.to(roomCode).emit('weapon-fired', { playerId: pId, weapon: 'sniper', x: p.x, z: p.z, angle: p.angle });
             }
           } else if (p.currentWeapon === 'hmg') {
-            // HMG: 14 shots/sec (71ms), overheats in 3s (42 shots -> ~2.38 heat per shot)
+            const level = (p.weapons['hmg'] && p.weapons['hmg'].level) ? p.weapons['hmg'].level : 1;
+            const fireRate = level >= 3 ? 50 : 71;
             if (!p.isOverheated) {
-              if (now - p.lastShotTime >= 68) {
+              if (now - p.lastShotTime >= fireRate) {
                 p.lastShotTime = now;
 
                 const vx = Math.sin(p.angle) * 24; // speed 24 m/s
@@ -1155,13 +1244,13 @@ function startGameLoop(roomCode) {
                   z: p.z,
                   vx: vx,
                   vz: vz,
-                  damage: 6,
+                  damage: level >= 2 ? 9 : 6,
                   range: 16.0,
                   distTraveled: 0,
                   type: 'hmg'
                 });
 
-                p.heat = Math.min(100, p.heat + 2.38);
+                p.heat = Math.min(100, p.heat + 2.38 * (p.overclockingMult || 1.0));
                 if (p.heat >= 100) p.isOverheated = true;
 
                 io.to(roomCode).emit('weapon-fired', { playerId: pId, weapon: 'hmg', x: p.x, z: p.z, angle: p.angle, heat: p.heat });
@@ -1171,7 +1260,10 @@ function startGameLoop(roomCode) {
             if (!p.isEnergyDepleted) {
               if (now - p.lastShotTime >= 100) {
                 p.lastShotTime = now;
-                const spread = 30 * Math.PI / 180;
+                const level = (p.weapons['flamethrower'] && p.weapons['flamethrower'].level) ? p.weapons['flamethrower'].level : 1;
+                const spread = (level >= 2 ? 45 : 30) * Math.PI / 180;
+                const maxDist = level >= 2 ? 10.4 : 8.0;
+                const maxBurnStacks = level >= 3 ? 5 : 3;
                 const playerAngle = p.angle;
                 
                 for (const enemyId in activeRoom.enemies) {
@@ -1179,7 +1271,7 @@ function startGameLoop(roomCode) {
                   const dx = enemy.x - p.x;
                   const dz = enemy.z - p.z;
                   const dist = Math.hypot(dx, dz);
-                  if (dist <= 8.0) {
+                  if (dist <= maxDist) {
                     const angleToEnemy = Math.atan2(dx, dz);
                     let diff = Math.abs(angleToEnemy - playerAngle);
                     while (diff > Math.PI) diff -= Math.PI * 2;
@@ -1209,7 +1301,7 @@ function startGameLoop(roomCode) {
                       
                       if (finalDmg > 0) {
                         enemy.hp -= finalDmg;
-                        enemy.burnStacks = Math.min(3, (enemy.burnStacks || 0) + 1);
+                        enemy.burnStacks = Math.min(maxBurnStacks, (enemy.burnStacks || 0) + 1);
                         enemy.burnEndTime = now + 3000;
                         enemy.lastBurnTickTime = now;
                         p.damageDealt += finalDmg;
@@ -1235,7 +1327,7 @@ function startGameLoop(roomCode) {
                     const dx = cover.x - p.x;
                     const dz = cover.z - p.z;
                     const dist = Math.hypot(dx, dz);
-                    if (dist <= 8.0) {
+                    if (dist <= maxDist) {
                       const angleToCover = Math.atan2(dx, dz);
                       let diff = Math.abs(angleToCover - playerAngle);
                       while (diff > Math.PI) diff -= Math.PI * 2;
@@ -1256,7 +1348,7 @@ function startGameLoop(roomCode) {
                     const dx = crate.x - p.x;
                     const dz = crate.z - p.z;
                     const dist = Math.hypot(dx, dz);
-                    if (dist <= 8.0) {
+                    if (dist <= maxDist) {
                       const angleToCrate = Math.atan2(dx, dz);
                       let diff = Math.abs(angleToCrate - playerAngle);
                       while (diff > Math.PI) diff -= Math.PI * 2;
@@ -1278,16 +1370,21 @@ function startGameLoop(roomCode) {
             if (!p.isBatteryDepleted && p.battery >= 25) {
               if (now - p.lastShotTime >= 600) {
                 p.lastShotTime = now;
-                p.battery -= 25;
+                p.battery -= 25 * (p.overclockingMult || 1.0) / (p.batteryCapacityMult || 1.0);
                 if (p.battery < 25) p.isBatteryDepleted = true;
                 
                 const chainTargets = [];
                 let currentSource = p;
                 const excludedIds = [];
                 
-                for (let i = 0; i < 3; i++) {
+                const level = (p.weapons['tesla'] && p.weapons['tesla'].level) ? p.weapons['tesla'].level : 1;
+                const maxTargets = level >= 2 ? 5 : 3;
+                const jumpRadius = level >= 4 ? 9.0 : 6.0;
+                const stunTime = level >= 3 ? 1000 : 500;
+                
+                for (let i = 0; i < maxTargets; i++) {
                   let closestEnemy = null;
-                  let closestDist = 6.0;
+                  let closestDist = jumpRadius;
                   
                   for (const enemyId in activeRoom.enemies) {
                     if (excludedIds.includes(enemyId)) continue;
@@ -1332,7 +1429,10 @@ function startGameLoop(roomCode) {
                   
                   if (finalDmg > 0) {
                     enemy.hp -= finalDmg;
-                    enemy.stunExpires = now + 500;
+                    enemy.stunExpires = now + stunTime;
+                    if (p.weapons && p.weapons['tesla'] && p.weapons['tesla'].level >= 5) {
+                      enemy.isFragile = true;
+                    }
                     p.damageDealt += finalDmg;
                     
                     io.to(roomCode).emit('enemy-hit', {
@@ -1475,8 +1575,13 @@ function startGameLoop(roomCode) {
             const enemy = activeRoom.enemies[enemyId];
             const dist = Math.hypot(enemy.x - puddle.x, enemy.z - puddle.z);
             if (dist <= puddle.radius) {
-              const dmg = 6 * dt; // 6 dmg/s
+              const level = puddle.level || 1;
+              const dmgPerSec = level >= 2 ? 12 : 6;
+              const dmg = dmgPerSec * dt;
               enemy.hp -= dmg;
+              if (level >= 4) {
+                enemy.slowExpires = Math.max(enemy.slowExpires || 0, now + 200);
+              }
               const owner = activeRoom.players[puddle.ownerId];
               if (owner) owner.damageDealt += dmg;
               if (enemy.hp <= 0) {
@@ -1497,11 +1602,7 @@ function startGameLoop(roomCode) {
             const dist = Math.hypot(player.x - puddle.x, player.z - puddle.z);
             if (dist <= puddle.radius) {
               const dmg = 15 * dt; // 15 dmg/s
-              player.hp = Math.max(0, player.hp - dmg);
-              if (player.hp <= 0) {
-                triggerDowned(activeRoom, pId);
-              }
-              io.to(roomCode).emit('player-hit', { playerId: pId, hp: player.hp, damage: dmg });
+              applyPlayerDamage(activeRoom, pId, dmg);
             }
           });
         });
@@ -1523,19 +1624,13 @@ function startGameLoop(roomCode) {
           const dist = Math.hypot(proj.x - player.x, proj.z - player.z);
           if (dist < 0.7) { // overlap
             // Apply damage
-            player.hp = Math.max(0, player.hp - proj.damage);
+            applyPlayerDamage(activeRoom, pId, proj.damage);
             
-            // Trigger downed or interrupt
-            if (player.hp <= 0) {
-              triggerDowned(activeRoom, pId);
-            } else {
-              if (player.isCrafting && proj.damage > 30) {
-                player.craftTimeLeft = Math.min(player.craftTotalTime, player.craftTimeLeft + 2.0);
-                io.to(roomCode).emit('craft-interrupted', { playerId: pId, craftTimeLeft: player.craftTimeLeft });
-              }
+            // Interrupt crafting
+            if (player.hp > 0 && player.isCrafting && proj.damage > 30) {
+              player.craftTimeLeft = Math.min(player.craftTotalTime, player.craftTimeLeft + 2.0);
+              io.to(roomCode).emit('craft-interrupted', { playerId: pId, craftTimeLeft: player.craftTimeLeft });
             }
-
-            io.to(roomCode).emit('player-hit', { playerId: pId, hp: player.hp, damage: proj.damage });
             activeRoom.projectiles.splice(idx, 1);
           }
         });
@@ -1575,8 +1670,8 @@ function startGameLoop(roomCode) {
           }
         });
 
-        // Magnet range 6m
-        if (closestPlayer && closestDist < 6.0) {
+        // Magnet range
+        if (closestPlayer && closestDist < (closestPlayer.magnetRadius || 6.0)) {
           const dx = closestPlayer.x - item.x;
           const dz = closestPlayer.z - item.z;
           item.x += (dx / closestDist) * 5.0 * dt;
@@ -1820,9 +1915,7 @@ function startGameLoop(roomCode) {
                 if (!player || player.disconnected || player.hp <= 0 || player.isDowned) return;
                 const dist = Math.hypot(player.x - enemy.x, player.z - enemy.z);
                 if (dist < 2.5) {
-                  player.hp = Math.max(0, player.hp - 22);
-                  if (player.hp <= 0) triggerDowned(activeRoom, pId);
-                  io.to(roomCode).emit('player-hit', { playerId: pId, hp: player.hp, damage: 22 });
+                  applyPlayerDamage(activeRoom, pId, 22);
                 }
               });
             }
@@ -1945,9 +2038,7 @@ function startGameLoop(roomCode) {
                   if (!player || player.disconnected || player.hp <= 0 || player.isDowned) return;
                   const dist = Math.hypot(player.x - enemy.x, player.z - enemy.z);
                   if (dist < 2.5) {
-                    player.hp = Math.max(0, player.hp - 35);
-                    if (player.hp <= 0) triggerDowned(activeRoom, pId);
-                    io.to(roomCode).emit('player-hit', { playerId: pId, hp: player.hp, damage: 35 });
+                    applyPlayerDamage(activeRoom, pId, 35);
                   }
                 });
               }
@@ -1970,7 +2061,7 @@ function startGameLoop(roomCode) {
                 if (cIdx !== -1) activeRoom.corpses.splice(cIdx, 1);
                 
                 const newId = 'enemy_' + (++activeRoom.enemyIdCounter);
-                const baseHp = c.type === 'meat' ? 15 : (c.type === 'sprinter' ? 8 : (c.type === 'tank' ? 80 : 25));
+                const baseHp = c.type === 'meat' ? 15 : (c.type === 'sprinter' ? 8 : (c.type === 'tank' ? 130 : 25));
                 const scalingFactorHp = 1 + 0.08 * (activeRoom.round - 1);
                 const hp = (baseHp * scalingFactorHp) * 0.5;
                 
@@ -2008,16 +2099,12 @@ function startGameLoop(roomCode) {
                 const dist = Math.hypot(player.x - enemy.x, player.z - enemy.z);
                 if (dist <= 3.5) {
                   const dmg = 30 * (1 - dist / 3.5);
-                  player.hp = Math.max(0, player.hp - dmg);
                   
                   const angle = Math.atan2(player.x - enemy.x, player.z - enemy.z);
                   player.x += Math.sin(angle) * 2.0;
                   player.z += Math.cos(angle) * 2.0;
                   
-                  if (player.hp <= 0) {
-                    triggerDowned(activeRoom, player.playerId);
-                  }
-                  io.to(roomCode).emit('player-hit', { playerId: player.playerId, hp: player.hp, damage: dmg });
+                  applyPlayerDamage(activeRoom, player.playerId, dmg);
                 }
               });
               continue;
@@ -2101,6 +2188,32 @@ function startGameLoop(roomCode) {
           enemy.x = tempEntity.x;
           enemy.z = tempEntity.z;
 
+          // Soft collision with other enemies to prevent stacking
+          for (const otherId in activeRoom.enemies) {
+            if (otherId === enemyId) continue;
+            const other = activeRoom.enemies[otherId];
+            
+            let r1 = (enemy.type === 'tank' || enemy.type.startsWith('boss_')) ? 0.8 : 0.45;
+            let r2 = (other.type === 'tank' || other.type.startsWith('boss_')) ? 0.8 : 0.45;
+            const minDist = r1 + r2;
+            
+            const edx = enemy.x - other.x;
+            const edz = enemy.z - other.z;
+            const distSq = edx * edx + edz * edz;
+            
+            if (distSq > 0 && distSq < minDist * minDist) {
+              const dist = Math.sqrt(distSq);
+              const overlap = minDist - dist;
+              // Resolve overlap smoothly
+              const pushStrength = 0.15; 
+              
+              if (enemy.type !== 'boss_drone' || !enemy.isLanded) {
+                enemy.x += (edx / dist) * overlap * pushStrength;
+                enemy.z += (edz / dist) * overlap * pushStrength;
+              }
+            }
+          }
+
           const margin = 0.4;
           enemy.x = Math.max(-ARENA_WIDTH / 2 + margin, Math.min(ARENA_WIDTH / 2 - margin, enemy.x));
           enemy.z = Math.max(-ARENA_DEPTH / 2 + margin, Math.min(ARENA_DEPTH / 2 - margin, enemy.z));
@@ -2109,19 +2222,13 @@ function startGameLoop(roomCode) {
           if (nearestDist < 0.9 && enemy.type !== 'necromancer' && enemy.type !== 'boss_drone' && enemy.type !== 'kamikaze') {
             if (now - enemy.lastAttackTime >= 1000) {
               enemy.lastAttackTime = now;
-              nearestPlayer.hp = Math.max(0, nearestPlayer.hp - enemy.damage);
+              applyPlayerDamage(activeRoom, nearestPlayer.playerId, enemy.damage);
               console.log(`Enemy ${enemy.id} bit player ${nearestPlayer.nickname} for ${enemy.damage} dmg.`);
               
-              if (nearestPlayer.hp <= 0) {
-                triggerDowned(activeRoom, nearestPlayer.playerId);
-              } else {
-                if (nearestPlayer.isCrafting && enemy.damage > 30) {
-                  nearestPlayer.craftTimeLeft = Math.min(nearestPlayer.craftTotalTime, nearestPlayer.craftTimeLeft + 2.0);
-                  io.to(roomCode).emit('craft-interrupted', { playerId: nearestPlayer.playerId, craftTimeLeft: nearestPlayer.craftTimeLeft });
-                }
+              if (nearestPlayer.hp > 0 && nearestPlayer.isCrafting && enemy.damage > 30) {
+                nearestPlayer.craftTimeLeft = Math.min(nearestPlayer.craftTotalTime, nearestPlayer.craftTimeLeft + 2.0);
+                io.to(roomCode).emit('craft-interrupted', { playerId: nearestPlayer.playerId, craftTimeLeft: nearestPlayer.craftTimeLeft });
               }
-
-              io.to(roomCode).emit('player-hit', { playerId: nearestPlayer.playerId, hp: nearestPlayer.hp, damage: enemy.damage });
             }
           }
 
@@ -2151,11 +2258,14 @@ function startGameLoop(roomCode) {
 
       // --- 7. COLLISION CHECKS: BULLETS vs MUTANTS (With piercing) ---
       activeRoom.bullets.forEach((bullet, bIdx) => {
+        const owner = activeRoom.players[bullet.ownerId];
+        const wpLvl = (owner && owner.weapons[bullet.type]) ? owner.weapons[bullet.type].level : 1;
+
         for (const enemyId in activeRoom.enemies) {
           const enemy = activeRoom.enemies[enemyId];
           
-          // Sniper bullet piercing: skip if already struck by this bullet
-          if (bullet.type === 'sniper' && bullet.hitEnemies.includes(enemyId)) {
+          // Bullet piercing: skip if already struck by this bullet
+          if (bullet.hitEnemies && bullet.hitEnemies.includes(enemyId)) {
             continue;
           }
 
@@ -2166,6 +2276,8 @@ function startGameLoop(roomCode) {
           
           if (dist < 0.6) {
             let finalDmg = bullet.damage;
+            const owner = activeRoom.players[bullet.ownerId];
+            if (owner && owner.dmgMult) finalDmg *= owner.dmgMult;
             
             // Shotgun distance falloff logic
             if (bullet.type === 'shotgun') {
@@ -2192,22 +2304,29 @@ function startGameLoop(roomCode) {
               finalDmg *= 2.0;
             }
 
+            // Tesla Fragility Debuff multiplier
+            if (enemy.isFragile) {
+              finalDmg *= 1.2;
+            }
+
             // Shieldbearer front shield check
             if (enemy.type === 'shieldbearer') {
-              const player = activeRoom.players[bullet.ownerId];
-              if (player) {
-                const dx = player.x - enemy.x;
-                const dz = player.z - enemy.z;
+              if (owner) {
+                const dx = owner.x - enemy.x;
+                const dz = owner.z - enemy.z;
                 const angleToPlayer = Math.atan2(dx, dz);
                 let angleDiff = Math.abs(angleToPlayer - enemy.angle);
                 while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
                 angleDiff = Math.abs(angleDiff);
                 
                 if (angleDiff <= (60 * Math.PI / 180)) {
-                  if (enemy.shieldHp > 0) {
-                    enemy.shieldHp = Math.max(0, enemy.shieldHp - finalDmg);
-                    io.to(roomCode).emit('shield-hit', { enemyId: enemy.id, shieldHp: enemy.shieldHp, x: enemy.x, z: enemy.z });
-                    finalDmg = 0;
+                  // Crossbow L5 ignores shields
+                  if (!(bullet.type === 'crossbow' && wpLvl >= 5)) {
+                    if (enemy.shieldHp > 0) {
+                      enemy.shieldHp = Math.max(0, enemy.shieldHp - finalDmg);
+                      io.to(roomCode).emit('shield-hit', { enemyId: enemy.id, shieldHp: enemy.shieldHp, x: enemy.x, z: enemy.z });
+                      finalDmg = 0;
+                    }
                   }
                 }
               }
@@ -2217,21 +2336,61 @@ function startGameLoop(roomCode) {
               enemy.hp -= finalDmg;
               enemy.slowExpires = now + 1000;
 
-              const owner = activeRoom.players[bullet.ownerId];
               if (owner) {
                 owner.damageDealt += finalDmg;
+              }
+
+              // Apply L5 effects on HIT
+              if (wpLvl >= 5) {
+                if (bullet.type === 'pistol') {
+                  // Explosive AoE + Knockback
+                  for (const eId in activeRoom.enemies) {
+                    if (eId !== enemyId) {
+                      const e = activeRoom.enemies[eId];
+                      const dist = Math.hypot(e.x - enemy.x, e.z - enemy.z);
+                      if (dist <= 1.2) {
+                        e.hp -= 4; // 4 explosive damage
+                        const pushAngle = Math.atan2(e.x - enemy.x, e.z - enemy.z);
+                        e.x += Math.sin(pushAngle) * 0.5;
+                        e.z += Math.cos(pushAngle) * 0.5;
+                      }
+                    }
+                  }
+                } else if (bullet.type === 'shotgun') {
+                  // Incendiary Burn
+                  enemy.burnStacks = Math.min(3, (enemy.burnStacks || 0) + 1);
+                  enemy.burnEndTime = now + 3000;
+                  enemy.lastBurnTickTime = now;
+                } else if (bullet.type === 'ar') {
+                  // Life leech / heal
+                  if (!owner.lastARHealTime || now - owner.lastARHealTime >= 500) {
+                    owner.hp = Math.min(owner.maxHp + (owner.maxHpBonus || 0), owner.hp + 1);
+                    owner.lastARHealTime = now;
+                  }
+                } else if (bullet.type === 'sniper') {
+                  // EMP slow wave
+                  for (const eId in activeRoom.enemies) {
+                    const e = activeRoom.enemies[eId];
+                    if (Math.hypot(e.x - enemy.x, e.z - enemy.z) <= 4.0) {
+                      e.slowExpires = now + 3000;
+                    }
+                  }
+                } else if (bullet.type === 'crossbow') {
+                  // Corrosion heavy slow
+                  enemy.slowExpires = now + 4000; // Longer slow
+                }
               }
 
               io.to(roomCode).emit('enemy-hit', {
                 enemyId: enemy.id,
                 damage: finalDmg,
                 x: enemy.x,
-                z: enemy.z
+                z: enemy.z,
+                weapon: bullet.type
               });
 
               // Check if dead
               if (enemy.hp <= 0) {
-                const owner = activeRoom.players[bullet.ownerId];
                 handleEnemyDeath(activeRoom, enemyId, owner, bullet.type);
               }
             }
@@ -2239,7 +2398,32 @@ function startGameLoop(roomCode) {
             // Piercing handling
             if (bullet.type === 'sniper') {
               bullet.hitEnemies.push(enemyId);
-              if (bullet.hitEnemies.length >= 3) { // Pierce caps at 3 targets
+              const pierceCap = wpLvl >= 2 ? 5 : 3;
+              if (bullet.hitEnemies.length >= pierceCap) {
+                activeRoom.bullets.splice(bIdx, 1);
+              }
+            } else if (bullet.type === 'pistol') {
+              activeRoom.bullets.splice(bIdx, 1);
+            } else if (bullet.type === 'shotgun') {
+              if (wpLvl >= 4) {
+                if (!bullet.hitEnemies) bullet.hitEnemies = [];
+                bullet.hitEnemies.push(enemyId);
+                // "Пробивает насквозь", let's say up to 5
+                if (bullet.hitEnemies.length >= 5) {
+                  activeRoom.bullets.splice(bIdx, 1);
+                }
+              } else {
+                activeRoom.bullets.splice(bIdx, 1);
+              }
+            } else if (bullet.type === 'crossbow') {
+              // Crossbow has infinite pierce? Actually, let's just make it pierce if level 5, else 1
+              if (wpLvl >= 5) {
+                if (!bullet.hitEnemies) bullet.hitEnemies = [];
+                bullet.hitEnemies.push(enemyId);
+                if (bullet.hitEnemies.length >= 5) {
+                  activeRoom.bullets.splice(bIdx, 1);
+                }
+              } else {
                 activeRoom.bullets.splice(bIdx, 1);
               }
             } else {
@@ -2262,7 +2446,7 @@ function startGameLoop(roomCode) {
         z: p.z,
         angle: p.angle,
         hp: p.hp,
-        maxHp: p.maxHp,
+        maxHp: Math.max(1, p.maxHp + (p.maxHpBonus || 0)),
         scrap: p.scrap,
         wp: p.wp,
         bp10: p.bp10,
@@ -2407,6 +2591,34 @@ function startGameLoop(roomCode) {
   }, TICK_TIME);
 }
 
+// Apply damage with modifiers (armor, juggernaut shield)
+function applyPlayerDamage(room, playerId, baseDmg) {
+  const p = room.players[playerId];
+  if (!p || p.hp <= 0 || p.isDowned) return;
+  
+  let finalDmg = baseDmg;
+  
+  // Armor Multiplier from Perks (0.85 = -15% damage)
+  if (p.armorMult) finalDmg *= p.armorMult;
+  
+  // Glass Cannon from Perks (1.15 = +15% damage)
+  if (p.glassCannonDmgTaken > 0) finalDmg *= (1 + p.glassCannonDmgTaken);
+  
+  // Juggernaut Shield (HMG L5)
+  if (p.currentWeapon === 'hmg' && p.hmgFireTime >= 1.5) {
+    if (p.weapons && p.weapons['hmg'] && p.weapons['hmg'].level >= 5) {
+      finalDmg *= 0.5; // 50% damage reduction
+    }
+  }
+  
+  p.hp = Math.max(0, p.hp - finalDmg);
+  io.to(room.roomCode).emit('player-hit', { playerId, hp: p.hp, damage: finalDmg });
+  
+  if (p.hp <= 0) {
+    triggerDowned(room, playerId);
+  }
+}
+
 // Trigger player downed state machine
 function triggerDowned(room, playerId) {
   const p = room.players[playerId];
@@ -2481,6 +2693,18 @@ io.on('connection', (socket) => {
           angle: 0,
           hp: 100,
           maxHp: 100,
+          maxHpBonus: 0,
+          regenRate: 0,
+          speedMult: 1.0,
+          armorMult: 1.0,
+          dmgMult: 1.0,
+          magnetRadius: 6.0,
+          vampirismChance: 0,
+          overclockingMult: 1.0,
+          glassCannonDmgTaken: 0,
+          craftSpeedMult: 1.0,
+          adrenalineSpeed: 1.0,
+          batteryCapacityMult: 1.0,
           scrap: 0,
           wp: 0,           // Weapon Parts
           bp10: 0,
@@ -2491,7 +2715,7 @@ io.on('connection', (socket) => {
           battery: 80,
           isEnergyDepleted: false,
           isBatteryDepleted: false,
-          weapons: ['pistol'],
+          weapons: { pistol: { level: 1 } },
           currentWeapon: 'pistol',
           isCrafting: false,
           craftWeapon: '',
@@ -2515,7 +2739,21 @@ io.on('connection', (socket) => {
           lastShotTime: 0,
           damageDealt: 0,
           kills: 0,
-          revives: 0
+          revives: 0,
+          // RPG Stats
+          maxHpBonus: 0,
+          regenLevel: 0,
+          speedBonus: 0,
+          armorMult: 0,
+          magnetBonus: 0,
+          scavengerChance: 0,
+          cooldownMult: 0,
+          damageMult: 0,
+          // Cursed Flags
+          glassCannon: false,
+          berserker: false,
+          adrenaline: false,
+          autophagyPenalty: 0
         }
       },
       gameStarted: false,
@@ -2590,6 +2828,18 @@ io.on('connection', (socket) => {
       angle: 0,
       hp: 100,
       maxHp: 100,
+      maxHpBonus: 0,
+      regenRate: 0,
+      speedMult: 1.0,
+      armorMult: 1.0,
+      dmgMult: 1.0,
+      magnetRadius: 6.0,
+      vampirismChance: 0,
+      overclockingMult: 1.0,
+      glassCannonDmgTaken: 0,
+      craftSpeedMult: 1.0,
+      adrenalineSpeed: 1.0,
+      batteryCapacityMult: 1.0,
       scrap: 0,
       wp: 0,
       bp10: 0,
@@ -2600,7 +2850,7 @@ io.on('connection', (socket) => {
       battery: 80,
       isEnergyDepleted: false,
       isBatteryDepleted: false,
-      weapons: ['pistol'],
+      weapons: { pistol: { level: 1 } },
       currentWeapon: 'pistol',
       isCrafting: false,
       craftWeapon: '',
@@ -2756,7 +3006,7 @@ io.on('connection', (socket) => {
       p.battery = 80;
       p.isEnergyDepleted = false;
       p.isBatteryDepleted = false;
-      p.weapons = ['pistol'];
+      p.weapons = { pistol: { level: 1 } };
       p.currentWeapon = 'pistol';
       p.isCrafting = false;
       p.craftWeapon = '';
@@ -2814,14 +3064,57 @@ io.on('connection', (socket) => {
     const player = room.players[socket.playerId];
     if (!player || player.disconnected || player.hp <= 0 || player.isDowned) return;
 
-    if (player.weapons.includes(weaponName) && !player.isCrafting) {
+    if (player.weapons[weaponName] && !player.isCrafting) {
       player.currentWeapon = weaponName;
       socket.emit('weapon-switched', { weaponName });
       console.log(`Player ${player.nickname} switched to ${weaponName}`);
     }
   });
 
-  // 7. Crafting Trigger (Level 1 and Level 2)
+  // 6.5 Draft Selection
+  socket.on('draft-select', ({ perkId }) => {
+    const code = socket.roomCode;
+    const room = rooms[code];
+    if (!room || room.roundState !== 'draft') return;
+    
+    const player = room.players[socket.playerId];
+    if (!player || room.draftSelections[socket.playerId]) return; // already selected
+    
+    // Apply perk
+    if (perkId === 'vampirism') {
+      player.vampirismChance = Math.min(0.10, (player.vampirismChance || 0) + 0.02);
+    } else if (perkId === 'autophagy') {
+      player.maxHpBonus -= 25;
+      const currentMaxHp = Math.max(1, player.maxHp + player.maxHpBonus);
+      player.hp = Math.max(1, Math.min(player.hp, currentMaxHp));
+      player.regenRate += 1.0;
+    } else if (perkId === 'overclocking') {
+      player.dmgMult += 0.10;
+      player.overclockingMult = 1.15;
+    } else if (perkId === 'tank') {
+      player.maxHpBonus += 15;
+      player.hp += 15;
+      player.speedMult -= 0.05;
+    } else if (perkId === 'glass_cannon') {
+      player.dmgMult += 0.20;
+      player.glassCannonDmgTaken += 0.15;
+    } else if (perkId === 'engineering') {
+      player.craftSpeedMult += 0.20;
+    } else if (perkId === 'adrenaline') {
+      player.adrenalineSpeed = 1.15;
+    } else if (perkId === 'sprinter') {
+      player.speedMult += 0.05;
+    } else if (perkId === 'backup_battery') {
+      player.batteryCapacityMult += 0.20;
+    } else if (perkId === 'magnet') {
+      player.magnetRadius += 2.0;
+    }
+    
+    room.draftSelections[socket.playerId] = perkId;
+    console.log(`Player ${player.nickname} selected perk: ${perkId}`);
+  });
+
+  // 7. Crafting Trigger (Level 1 to 5)
   socket.on('start-craft', ({ weaponName }) => {
     const code = socket.roomCode;
     const room = rooms[code];
@@ -2834,29 +3127,113 @@ io.on('connection', (socket) => {
     if (distToCenter > 2.0) {
       return socket.emit('craft-error', { message: 'Вы слишком далеко от верстака.' });
     }
+    
+    // Check current level
+    let currentLevel = 0;
+    if (player.weapons[weaponName]) {
+      currentLevel = player.weapons[weaponName].level;
+    }
+    if (currentLevel >= 5) {
+      return socket.emit('craft-error', { message: 'Оружие уже максимального уровня.' });
+    }
 
     let scrapCost = 0;
     let wpCost = 0;
-    let bp10Cost = 0;
-    let bp20Cost = 0;
+    let bpCost = 0; // Generic BP cost, assuming bp10/20/30 can be used interchangeably or specifically for advanced
 
-    if (weaponName === 'shotgun') scrapCost = 15;
-    else if (weaponName === 'ar') scrapCost = 20;
-    else if (weaponName === 'sniper') { wpCost = 10; bp10Cost = 1; }
-    else if (weaponName === 'hmg') { wpCost = 15; bp10Cost = 1; }
-    else if (weaponName === 'flamethrower') { wpCost = 12; bp10Cost = 1; bp20Cost = 1; }
-    else if (weaponName === 'tesla') { wpCost = 15; bp10Cost = 1; bp20Cost = 1; }
-    else if (weaponName === 'crossbow') { wpCost = 10; bp10Cost = 1; bp20Cost = 1; }
-    else return socket.emit('craft-error', { message: 'Неизвестный рецепт.' });
+    const costTable = {
+      pistol: [
+        { scrap: 10, wp: 0, bp: 0 },
+        { scrap: 15, wp: 2, bp: 0 },
+        { scrap: 0, wp: 15, bp: 0 },
+        { scrap: 0, wp: 20, bp: 1 }
+      ],
+      shotgun: [
+        { scrap: 15, wp: 0, bp: 0 }, // craft
+        { scrap: 15, wp: 5, bp: 0 }, // L2
+        { scrap: 0, wp: 15, bp: 0 }, // L3
+        { scrap: 0, wp: 20, bp: 0 }, // L4
+        { scrap: 0, wp: 25, bp: 1 }  // L5
+      ],
+      ar: [
+        { scrap: 20, wp: 0, bp: 0 },
+        { scrap: 15, wp: 5, bp: 0 },
+        { scrap: 0, wp: 15, bp: 0 },
+        { scrap: 0, wp: 20, bp: 0 },
+        { scrap: 0, wp: 25, bp: 1 }
+      ],
+      sniper: [
+        { scrap: 0, wp: 10, bp: 1 },
+        { scrap: 0, wp: 15, bp: 0 },
+        { scrap: 0, wp: 20, bp: 0 },
+        { scrap: 0, wp: 25, bp: 0 },
+        { scrap: 0, wp: 30, bp: 1 }
+      ],
+      hmg: [
+        { scrap: 0, wp: 15, bp: 1 },
+        { scrap: 0, wp: 15, bp: 0 },
+        { scrap: 0, wp: 20, bp: 0 },
+        { scrap: 0, wp: 25, bp: 0 },
+        { scrap: 0, wp: 30, bp: 1 }
+      ],
+      flamethrower: [
+        { scrap: 0, wp: 12, bp: 2 },
+        { scrap: 0, wp: 15, bp: 0 },
+        { scrap: 0, wp: 20, bp: 0 },
+        { scrap: 0, wp: 25, bp: 0 },
+        { scrap: 0, wp: 30, bp: 1 }
+      ],
+      tesla: [
+        { scrap: 0, wp: 15, bp: 2 },
+        { scrap: 0, wp: 15, bp: 0 },
+        { scrap: 0, wp: 20, bp: 0 },
+        { scrap: 0, wp: 25, bp: 0 },
+        { scrap: 0, wp: 30, bp: 1 }
+      ],
+      crossbow: [
+        { scrap: 0, wp: 10, bp: 2 },
+        { scrap: 0, wp: 15, bp: 0 },
+        { scrap: 0, wp: 20, bp: 0 },
+        { scrap: 0, wp: 25, bp: 0 },
+        { scrap: 0, wp: 30, bp: 1 }
+      ]
+    };
 
-    if (player.scrap < scrapCost || player.wp < wpCost || player.bp10 < bp10Cost || player.bp20 < bp20Cost) {
-      return socket.emit('craft-error', { message: 'Недостаточно материалов для сборки.' });
+    if (!costTable[weaponName]) {
+      return socket.emit('craft-error', { message: 'Неизвестный рецепт.' });
+    }
+    
+    // Determine the cost index: For pistol, currentLevel 1 -> index 0 (upgrade to 2).
+    // For others, currentLevel 0 -> index 0 (craft L1).
+    let targetIndex = currentLevel;
+    if (weaponName === 'pistol') targetIndex = currentLevel - 1; 
+
+    if (targetIndex >= costTable[weaponName].length || targetIndex < 0) {
+        return socket.emit('craft-error', { message: 'Апгрейд невозможен.' });
+    }
+
+    const baseCost = costTable[weaponName][targetIndex];
+
+    scrapCost = baseCost.scrap;
+    wpCost = baseCost.wp;
+    bpCost = baseCost.bp; // Blueprints don't get 1.5x penalty because they are strict 1 drops
+    
+    const totalPlayerBp = player.bp10 + player.bp20 + player.bp30;
+
+    if (player.scrap < scrapCost || player.wp < wpCost || totalPlayerBp < bpCost) {
+      return socket.emit('craft-error', { message: 'Недостаточно материалов для сборки/улучшения.' });
     }
 
     player.scrap -= scrapCost;
     player.wp -= wpCost;
-    player.bp10 -= bp10Cost;
-    player.bp20 -= bp20Cost;
+    
+    // Deduct BP from anywhere (simplification for RPG update to avoid strict BP matching)
+    let remainingBpCost = bpCost;
+    while(remainingBpCost > 0) {
+      if (player.bp10 > 0) { player.bp10--; remainingBpCost--; }
+      else if (player.bp20 > 0) { player.bp20--; remainingBpCost--; }
+      else if (player.bp30 > 0) { player.bp30--; remainingBpCost--; }
+    }
 
     player.isCrafting = true;
     player.craftWeapon = weaponName;
@@ -2904,21 +3281,26 @@ io.on('connection', (socket) => {
       return socket.emit('transfer-error', { message: 'Недостаточно хлама.' });
     }
 
+    const amountToTransfer = Math.min(amount, 60 - receiver.scrap);
+    if (amountToTransfer <= 0) {
+      return socket.emit('transfer-error', { message: 'У напарника полный склад хлама.' });
+    }
+
     const maxTransfer = Math.floor((player.scrap + player.scrapTransferredThisRound) * 0.5);
-    if (player.scrapTransferredThisRound + amount > maxTransfer) {
+    if (player.scrapTransferredThisRound + amountToTransfer > maxTransfer) {
       return socket.emit('transfer-error', { message: `Превышен лимит передачи за раунд (Макс: ${maxTransfer - player.scrapTransferredThisRound} шт.)` });
     }
 
-    player.scrap -= amount;
-    player.scrapTransferredThisRound += amount;
-    receiver.scrap = Math.min(60, receiver.scrap + amount);
+    player.scrap -= amountToTransfer;
+    player.scrapTransferredThisRound += amountToTransfer;
+    receiver.scrap += amountToTransfer;
 
     io.to(code).emit('scrap-transferred', {
       senderId: player.playerId,
       receiverId: receiver.playerId,
       senderScrap: player.scrap,
       receiverScrap: receiver.scrap,
-      amount
+      amount: amountToTransfer
     });
   });
 
