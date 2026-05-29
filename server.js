@@ -1502,10 +1502,10 @@ function startGameLoop(roomCode) {
         if (activeRoom.covers) {
           for (const coverId in activeRoom.covers) {
             const cover = activeRoom.covers[coverId];
-            const minX = cover.x - 0.75;
-            const maxX = cover.x + 0.75;
-            const minZ = cover.z - 0.3;
-            const maxZ = cover.z + 0.3;
+            const minX = cover.x - 0.9;
+            const maxX = cover.x + 0.9;
+            const minZ = cover.z - 0.5;
+            const maxZ = cover.z + 0.5;
             if (bullet.x > minX && bullet.x < maxX && bullet.z > minZ && bullet.z < maxZ) {
               cover.hp -= bullet.damage;
               if (cover.hp <= 0) {
@@ -1525,10 +1525,10 @@ function startGameLoop(roomCode) {
         if (activeRoom.crates) {
           for (const crateId in activeRoom.crates) {
             const crate = activeRoom.crates[crateId];
-            const minX = crate.x - 0.35;
-            const maxX = crate.x + 0.35;
-            const minZ = crate.z - 0.35;
-            const maxZ = crate.z + 0.35;
+            const minX = crate.x - 0.7;
+            const maxX = crate.x + 0.7;
+            const minZ = crate.z - 0.7;
+            const maxZ = crate.z + 0.7;
             if (bullet.x > minX && bullet.x < maxX && bullet.z > minZ && bullet.z < maxZ) {
               crate.hp -= bullet.damage;
               if (crate.hp <= 0) {
@@ -2122,8 +2122,13 @@ function startGameLoop(roomCode) {
           let dz = nearestPlayer.z - enemy.z;
           
           if (enemy.type === 'necromancer') {
-            dx = -dx;
-            dz = -dz;
+            if (nearestDist < 12.0) {
+              dx = -dx;
+              dz = -dz;
+            } else {
+              dx = 0 - enemy.x; // move towards center if far away
+              dz = 0 - enemy.z;
+            }
           }
 
           enemy.angle = Math.atan2(dx, dz);
@@ -2143,7 +2148,16 @@ function startGameLoop(roomCode) {
               if (nearestDist <= 5.0 && nearestDist >= 4.0) {
                 activeSpeed = 0;
               } else if (nearestDist < 4.0) {
-                enemy.angle = Math.atan2(-dx, -dz);
+                // Flee from player
+                let fleeDx = -dx;
+                let fleeDz = -dz;
+                
+                // If close to edge, move towards center instead of getting stuck
+                if (Math.abs(enemy.x) > ARENA_WIDTH / 2 - 3 || Math.abs(enemy.z) > ARENA_DEPTH / 2 - 3) {
+                  fleeDx = 0 - enemy.x;
+                  fleeDz = 0 - enemy.z;
+                }
+                enemy.angle = Math.atan2(fleeDx, fleeDz);
               }
             }
           }
@@ -2274,7 +2288,11 @@ function startGameLoop(roomCode) {
           const prevZ = bullet.z - bullet.vz * (TICK_TIME / 1000);
           const dist = distToSegment(enemy.x, enemy.z, prevX, prevZ, bullet.x, bullet.z);
           
-          if (dist < 0.6) {
+          let collisionDist = 0.6;
+          if (enemy.type === 'tank' || enemy.type.startsWith('boss_')) collisionDist = 1.4;
+          else if (enemy.type === 'shieldbearer') collisionDist = 0.9;
+          
+          if (dist < collisionDist) {
             let finalDmg = bullet.damage;
             const owner = activeRoom.players[bullet.ownerId];
             if (owner && owner.dmgMult) finalDmg *= owner.dmgMult;
@@ -2511,7 +2529,9 @@ function startGameLoop(roomCode) {
     const projectilesState = activeRoom.projectiles.map(p => ({
       id: p.id,
       x: p.x,
-      z: p.z
+      z: p.z,
+      vx: p.vx,
+      vz: p.vz
     }));
 
     const coversState = {};
