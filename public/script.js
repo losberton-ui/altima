@@ -114,6 +114,18 @@ const hudLocalWeapon = document.getElementById('hud-local-weapon');
 const hudLocalScrapHud = document.getElementById('hud-local-scrap-hud');
 const hudLocalWeaponGauge = document.getElementById('hud-local-weapon-gauge');
 
+const floatingHpLocal = document.getElementById('floating-hp-local');
+const floatingHpRemote = document.getElementById('floating-hp-remote');
+const weaponToggleBtn = document.getElementById('weapon-toggle-btn');
+const weaponSelectorPopup = document.getElementById('weapon-selector-popup');
+const currentWeaponIcon = document.getElementById('current-weapon-icon');
+
+if (weaponToggleBtn) {
+  weaponToggleBtn.addEventListener('click', () => {
+    weaponSelectorPopup.classList.toggle('hidden');
+  });
+}
+
 const selectPistolBtn = document.getElementById('select-pistol');
 const selectShotgunBtn = document.getElementById('select-shotgun');
 const selectArBtn = document.getElementById('select-ar');
@@ -205,7 +217,8 @@ const GameAudio = {
     sniperHit: 'audio/sniper_hit.mp3',
     hit: 'audio/shot_on_mob.mp3',
     scrapNormal: 'audio/zapchast_1.mp3',
-    scrapGood: 'audio/zapchast_xoroshaya.mp3'
+    scrapGood: 'audio/zapchast_xoroshaya.mp3',
+    hmg: 'audio/hmg_shoot.mp3'
   },
   lastPlayed: {},
 
@@ -304,6 +317,10 @@ window.addEventListener('DOMContentLoaded', () => {
   leaveRoomBtn.addEventListener('click', leaveRoom);
   restartGameBtn.addEventListener('click', () => {
     gameOverContainer.classList.add('hidden');
+    for (let k in keys) keys[k] = false;
+    joystickLeft.active = false; joystickLeft.xInput = 0; joystickLeft.zInput = 0;
+    joystickRight.active = false;
+    isShooting = false;
     socket.emit('start-game');
   });
 
@@ -413,6 +430,15 @@ window.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('keyup', handleKeyUp);
   window.addEventListener('mousemove', handleMouseMove);
   
+  window.addEventListener('blur', () => {
+    for (let k in keys) keys[k] = false;
+    joystickLeft.active = false;
+    joystickLeft.xInput = 0;
+    joystickLeft.zInput = 0;
+    joystickRight.active = false;
+    isShooting = false;
+  });
+  
   window.addEventListener('mousedown', (e) => {
     if (isGameActive && !isTouchDevice && e.button === 0) {
       // Don't shoot if clicking inside the open workbench modal
@@ -513,7 +539,8 @@ function setupSocket() {
         delete playersMeshes[data.playerId];
       }
       remotePlayerState = null;
-      hudRemoteCard.classList.add('hidden');
+      if (hudRemoteCard) hudRemoteCard.classList.add('hidden');
+      if (floatingHpRemote) floatingHpRemote.classList.add('hidden');
       document.getElementById('remote-weapon-info-row').classList.add('hidden');
       document.getElementById('remote-inventory-row').classList.add('hidden');
       alert('Напарник покинул сектор.');
@@ -573,13 +600,14 @@ function setupSocket() {
     gameContainer.classList.remove('hidden');
     
     // Set names in HUD
-    hudLocalName.textContent = nicknameInput.value.toUpperCase();
+    if (hudLocalName) hudLocalName.textContent = nicknameInput.value.toUpperCase();
     for (const id in playerList) {
       if (id !== myPlayerId) {
-        hudRemoteCard.classList.remove('hidden');
+        if (hudRemoteCard) hudRemoteCard.classList.remove('hidden');
+        if (floatingHpRemote) floatingHpRemote.classList.remove('hidden');
         document.getElementById('remote-weapon-info-row').classList.remove('hidden');
         document.getElementById('remote-inventory-row').classList.remove('hidden');
-        hudRemoteName.textContent = playerList[id].nickname.toUpperCase();
+        if (hudRemoteName) hudRemoteName.textContent = playerList[id].nickname.toUpperCase();
       }
     }
 
@@ -598,6 +626,7 @@ function setupSocket() {
     else if (data.weapon === 'shotgun') GameAudio.playSound('shotgun', 0.5);
     else if (data.weapon === 'ar') GameAudio.playSound('ar', 0.4);
     else if (data.weapon === 'sniper') GameAudio.playSound('sniper', 0.6);
+    else if (data.weapon === 'hmg') GameAudio.playSound('hmg', 0.5);
     
     if (scene && data.weapon !== 'flamethrower' && data.weapon !== 'tesla' && data.weapon !== 'crossbow') {
        // Calculate exact barrel position
@@ -887,7 +916,7 @@ function setupSocket() {
     announcementTitle.className = 'pulse-text';
     announcementSubtitle.textContent = 'УНИЧТОЖЬТЕ МУТАНТОВ';
     
-    document.querySelector('.hud-bottom').classList.remove('hidden');
+    document.querySelector('.hud-bottom-minimal').classList.remove('hidden');
     
     setTimeout(() => {
       if (announcementTitle.textContent.startsWith('РАУНД')) {
@@ -899,7 +928,7 @@ function setupSocket() {
   socket.on('draft-started', (data) => {
     // Show draft modal
     draftModal.classList.remove('hidden');
-    document.querySelector('.hud-bottom').classList.add('hidden');
+    document.querySelector('.hud-bottom-minimal').classList.add('hidden');
     draftWaitingText.classList.add('hidden');
     draftChoicesContainer.innerHTML = '';
     
@@ -907,18 +936,34 @@ function setupSocket() {
     const myChoices = data.choices[myPlayerId] || [];
     myChoices.forEach(perk => {
       const card = document.createElement('div');
-      card.className = 'craft-item-card';
+      card.className = 'craft-item-card draft-perk-card';
+      
+      const perkIcons = {
+        'vampirism': '🩸',
+        'autophagy': '❤️‍🔥',
+        'overclocking': '⚙️',
+        'tank': '🛡️',
+        'glass_cannon': '💥',
+        'engineering': '🔧',
+        'adrenaline': '⚡',
+        'sprinter': '🏃',
+        'backup_battery': '🔋',
+        'magnet': '🧲'
+      };
+      const icon = perkIcons[perk.id] || '✨';
+
       card.innerHTML = `
+        <div class="perk-icon-container">${icon}</div>
         <div class="item-header" style="color: #ffd700;">${perk.name}</div>
-        <p style="margin: 15px 0;">${perk.desc}</p>
-        <button class="btn success-btn" style="width: 100%;">ВЫБРАТЬ</button>
+        <p style="margin: 10px 0; font-size: 0.85rem; color: #ddd;">${perk.desc}</p>
+        <button class="btn success-btn glass-btn" style="width: 100%;">ВЫБРАТЬ</button>
       `;
       const btn = card.querySelector('button');
       btn.addEventListener('click', () => {
         socket.emit('draft-select', { perkId: perk.id });
         draftChoicesContainer.innerHTML = ''; // clear choices
         draftWaitingText.classList.remove('hidden');
-        document.querySelector('.hud-bottom').classList.remove('hidden');
+        document.querySelector('.hud-bottom-minimal').classList.remove('hidden');
       });
       draftChoicesContainer.appendChild(card);
     });
@@ -926,7 +971,7 @@ function setupSocket() {
 
   socket.on('round-completed', (data) => {
     draftModal.classList.add('hidden'); // Hide draft modal if it was open
-    document.querySelector('.hud-bottom').classList.remove('hidden');
+    document.querySelector('.hud-bottom-minimal').classList.remove('hidden');
     
     announcementOverlay.classList.remove('hidden');
     announcementTitle.textContent = 'СНАБЖЕНИЕ ЗАВЕРШЕНО';
@@ -1245,11 +1290,11 @@ function setupSocket() {
       // Update local HUD HP bar
       const displayHp = Math.round(Math.max(0, serverMe.hp));
       hudLocalHpFill.style.width = `${(displayHp / serverMe.maxHp) * 100}%`;
-      hudLocalHpText.textContent = `${displayHp}/${serverMe.maxHp}`;
+      if (hudLocalHpText) hudLocalHpText.textContent = `${displayHp}/${serverMe.maxHp}`;
       
-      if (serverMe.hp > 50) {
-        hudLocalHpFill.style.background = 'linear-gradient(90deg, #0055ff, #00bbff)';
-      } else if (serverMe.hp > 20) {
+      if (serverMe.hp / serverMe.maxHp > 0.5) {
+        hudLocalHpFill.style.background = 'linear-gradient(90deg, #10b981, #34d399)';
+      } else if (serverMe.hp / serverMe.maxHp > 0.25) {
         hudLocalHpFill.style.background = 'linear-gradient(90deg, #eab308, #facc15)';
       } else {
         hudLocalHpFill.style.background = 'linear-gradient(90deg, #ef4444, #f87171)';
@@ -1383,16 +1428,17 @@ function setupSocket() {
       if (pId !== myPlayerId) {
         const sPlayer = state.players[pId];
         
-        hudRemoteCard.classList.remove('hidden');
+        if (hudRemoteCard) hudRemoteCard.classList.remove('hidden');
+        if (floatingHpRemote) floatingHpRemote.classList.remove('hidden');
         document.getElementById('remote-weapon-info-row').classList.remove('hidden');
         document.getElementById('remote-inventory-row').classList.remove('hidden');
         const displayHp = Math.round(Math.max(0, sPlayer.hp));
         hudRemoteHpFill.style.width = `${(displayHp / sPlayer.maxHp) * 100}%`;
-        hudRemoteHpText.textContent = `${displayHp}/${sPlayer.maxHp}`;
+        if (hudRemoteHpText) hudRemoteHpText.textContent = `${displayHp}/${sPlayer.maxHp}`;
         
-        if (sPlayer.hp > 50) {
-          hudRemoteHpFill.style.background = 'linear-gradient(90deg, #00ffaa, #00e5ff)';
-        } else if (sPlayer.hp > 20) {
+        if (sPlayer.hp / sPlayer.maxHp > 0.5) {
+          hudRemoteHpFill.style.background = 'linear-gradient(90deg, #10b981, #34d399)';
+        } else if (sPlayer.hp / sPlayer.maxHp > 0.25) {
           hudRemoteHpFill.style.background = 'linear-gradient(90deg, #eab308, #facc15)';
         } else {
           hudRemoteHpFill.style.background = 'linear-gradient(90deg, #ef4444, #f87171)';
@@ -1452,7 +1498,7 @@ function setupSocket() {
     
     if (state.roundState === 'intermission' || state.roundState === 'draft') {
       hudRound.textContent = `РАУНД ${state.round}`;
-      hudRoundLabel.textContent = state.roundState === 'draft' ? 'СНАБЖЕНИЕ' : 'ПОДГОТОВКА';
+      if (hudRoundLabel) hudRoundLabel.textContent = state.roundState === 'draft' ? 'СНАБЖЕНИЕ' : 'ПОДГОТОВКА';
       hudTimer.classList.remove('hidden');
       hudTimer.textContent = Math.ceil(state.roundTimer);
       if (state.roundState === 'draft') {
@@ -1460,7 +1506,7 @@ function setupSocket() {
       }
     } else {
       hudRound.textContent = `РАУНД ${state.round}/50`;
-      hudRoundLabel.textContent = 'ВОЛНА';
+      if (hudRoundLabel) hudRoundLabel.textContent = 'ВОЛНА';
       hudTimer.classList.add('hidden');
     }
 
@@ -1671,6 +1717,10 @@ function updateWeaponGauges(player, target) {
   const level = player.weapons[curWp] ? player.weapons[curWp].level : 1;
   const starsHtml = `<br><span style="font-size: 0.8rem; color: #ffd700;">${'⭐'.repeat(level)}</span>`;
 
+  if (isLocal && currentWeaponIcon) {
+    currentWeaponIcon.src = `icons/wp_${curWp}.png`;
+  }
+
   if (player.currentWeapon === 'pistol') {
     nameElement.innerHTML = weaponIcons.pistol + starsHtml;
     fillElement.style.width = '0%';
@@ -1749,7 +1799,7 @@ function updateWeaponGauges(player, target) {
       announcementOverlay.classList.add('hidden');
     }
   } else if (player.currentWeapon === 'crossbow') {
-    nameElement.textContent = 'АРБАЛЕТ';
+    nameElement.innerHTML = weaponIcons.crossbow + starsHtml;
     const elapsed = Date.now() - lastShot;
     const progress = Math.min(1.0, elapsed / 1200);
     fillElement.style.width = `${(1.0 - progress) * 100}%`;
@@ -2341,6 +2391,8 @@ function applyMobileAutoAim() {
 // THREE.JS 3D ENGINE GRAPHICS
 // ----------------------------------------------------
 function init3D() {
+  disposeScene();
+
   const width = gameCanvas.clientWidth;
   const height = gameCanvas.clientHeight;
 
@@ -2626,27 +2678,27 @@ function spawnFloatingText(text, x, y, z, colorHex = '#ff0055') {
   div.style.left = screenX + 'px';
   div.style.top = screenY + 'px';
   div.style.color = colorHex;
-  div.style.fontWeight = '900';
-  div.style.fontSize = '24px';
-  div.style.fontFamily = '"Roboto", sans-serif';
-  div.style.textShadow = '2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000';
+  div.style.fontWeight = 'bold';
+  div.style.fontSize = '14px';
+  div.style.fontFamily = 'var(--font-mono), monospace';
+  div.style.textShadow = '1px 1px 2px rgba(0,0,0,0.8)';
   div.style.pointerEvents = 'none';
   div.style.zIndex = '1000';
   div.style.transform = 'translate(-50%, -50%)';
-  div.style.transition = 'top 0.8s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.8s ease-in';
+  div.style.transition = 'top 0.6s ease-out, opacity 0.6s ease-in';
   div.style.opacity = '1';
   
   document.body.appendChild(div);
 
   // Trigger CSS transition next frame
   requestAnimationFrame(() => {
-    div.style.top = (screenY - 80) + 'px';
+    div.style.top = (screenY - 40) + 'px';
     div.style.opacity = '0';
   });
 
   setTimeout(() => {
-    if(document.body.contains(div)) div.remove();
-  }, 800);
+    if (div.parentNode) div.parentNode.removeChild(div);
+  }, 600);
 
 }
 
@@ -3078,6 +3130,37 @@ function animate() {
     if (pMesh.visible && pMesh.userData.vx !== undefined) {
       pMesh.position.x += pMesh.userData.vx * dt;
       pMesh.position.z += pMesh.userData.vz * dt;
+    }
+  }
+
+  // Project HP bars to screen space
+  if (renderer && camera) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    
+    if (floatingHpLocal && myPlayerId && playersMeshes[myPlayerId] && isGameActive) {
+      floatingHpLocal.classList.remove('hidden');
+      const pos = playersMeshes[myPlayerId].position.clone();
+      pos.project(camera);
+      if (pos.z < 1) {
+        const screenX = rect.left + (pos.x * 0.5 + 0.5) * rect.width;
+        const screenY = rect.top + -(pos.y * 0.5 - 0.5) * rect.height;
+        floatingHpLocal.style.left = screenX + 'px';
+        floatingHpLocal.style.top = screenY + 'px';
+      }
+    } else if (floatingHpLocal) {
+      floatingHpLocal.classList.add('hidden');
+    }
+    
+    const remotePlayerId = Object.keys(playerList).find(id => id !== myPlayerId);
+    if (floatingHpRemote && remotePlayerId && playersMeshes[remotePlayerId] && isGameActive) {
+      const pos = playersMeshes[remotePlayerId].position.clone();
+      pos.project(camera);
+      if (pos.z < 1) {
+        const screenX = rect.left + (pos.x * 0.5 + 0.5) * rect.width;
+        const screenY = rect.top + -(pos.y * 0.5 - 0.5) * rect.height;
+        floatingHpRemote.style.left = screenX + 'px';
+        floatingHpRemote.style.top = screenY + 'px';
+      }
     }
   }
 
@@ -3984,4 +4067,55 @@ function syncBarrels(barrelsState) {
       delete barrelsMeshes[bId];
     }
   }
+}
+
+function disposeScene() {
+  if (renderer) {
+    renderer.dispose();
+    if (renderer.domElement && typeof gameCanvas !== 'undefined' && gameCanvas && gameCanvas.contains(renderer.domElement)) {
+      gameCanvas.removeChild(renderer.domElement);
+    }
+  }
+  
+  if (scene) {
+    scene.traverse(object => {
+      if (object.isMesh) {
+        if (object.geometry) object.geometry.dispose();
+        if (object.material) {
+          if (Array.isArray(object.material)) {
+            object.material.forEach(mat => mat.dispose());
+          } else {
+            object.material.dispose();
+          }
+        }
+      }
+    });
+  }
+
+  playersMeshes = {};
+  enemiesMeshes = {};
+  scrapMeshes = {};
+  bulletMeshes = [];
+  projectileMeshes = [];
+  coversMeshes = {};
+  cratesMeshes = {};
+  puddleMeshes = {};
+  firePuddleMeshes = {};
+  barrelsMeshes = {};
+  warpWarningMeshes = {};
+  flameParticles = [];
+  activeVFX = [];
+  bloodParticles = [];
+  gibParticles = [];
+
+  if (sniperLaserLine) {
+    if (sniperLaserLine.geometry) sniperLaserLine.geometry.dispose();
+    if (sniperLaserLine.material) sniperLaserLine.material.dispose();
+    sniperLaserLine = null;
+  }
+
+  scene = null;
+  camera = null;
+  renderer = null;
+  clock = null;
 }

@@ -136,25 +136,32 @@
 
     <!-- HUD OVERLAY -->
     <div id="hud-container">
-      <!-- TOP HUD: Health, Round info, scores -->
-      <div class="hud-top">
-        <!-- Local Player HP (Top Left) -->
-        <div class="top-player-card local-top-card">
-          <div class="player-name" id="hud-local-name">ОПЕРАТОР 1</div>
-          <div class="hp-bar-container">
-            <div id="hud-local-hp-fill" class="hp-bar-fill" style="width: 100%;"></div>
-            <span id="hud-local-hp-text" class="hp-text">100/100</span>
-          </div>
+      <!-- NEW FLOATING HP BARS -->
+      <div id="floating-hp-local" class="floating-hp hidden">
+        <div id="hud-local-name" class="floating-name">ОПЕРАТОР</div>
+        <div class="hp-bar-container floating">
+          <div id="hud-local-hp-fill" class="hp-bar-fill" style="width: 100%;"></div>
+          <div id="hud-local-hp-text" class="floating-hp-text">100/100</div>
         </div>
+      </div>
+      <div id="floating-hp-remote" class="floating-hp hidden">
+        <div id="hud-remote-name" class="floating-name">НАПАРНИК</div>
+        <div class="hp-bar-container floating">
+          <div id="hud-remote-hp-fill" class="hp-bar-fill remote-fill" style="width: 100%;"></div>
+          <div id="hud-remote-hp-text" class="floating-hp-text">100/100</div>
+        </div>
+        <div id="hud-remote-disconnect-tag" class="disconnect-tag floating hidden">ДИСКОННЕКТ</div>
+      </div>
 
-        <!-- Center Stats -->
-        <div class="top-center-stats">
-          <div class="hud-box score-box">
-            <span class="hud-label">СЧЁТ</span>
+      <!-- TOP HUD: Minimalist, resources top right -->
+      <div class="hud-top-minimal">
+        <div class="top-left-stats">
+          <div class="hud-icon-box score-box">
+            <span class="hud-icon">💀</span>
             <span id="hud-score" class="hud-value hud-blue">00000</span>
           </div>
-          <div class="hud-box round-box">
-            <span id="hud-round-label" class="hud-label">РАУНД</span>
+          <div class="hud-icon-box round-box">
+            <span class="hud-icon">🏁</span>
             <span id="hud-round" class="hud-value hud-red">1/50</span>
             <div id="hud-timer" class="hud-timer hidden">15</div>
           </div>
@@ -163,82 +170,64 @@
           </div>
         </div>
 
-        <!-- Remote Player HP (Top Right) -->
-        <div class="top-player-card remote-top-card hidden" id="hud-remote-card">
-          <div class="player-name" id="hud-remote-name">ОПЕРАТОР 2</div>
-          <div class="hp-bar-container">
-            <div id="hud-remote-hp-fill" class="hp-bar-fill remote-fill" style="width: 100%;"></div>
-            <span id="hud-remote-hp-text" class="hp-text">100/100</span>
+        <div class="top-right-inventory">
+          <div class="inventory-status-row local-inv">
+            <span id="hud-local-scrap-hud" class="scrap-label">⚙️ 0/60</span>
+            <span id="hud-local-wp-hud" class="wp-label">🔧 0/25</span>
+            <span id="hud-local-bp10-hud" class="bp-label">📜A 0</span>
+            <span id="hud-local-bp20-hud" class="bp-label">📜B 0</span>
+            <span id="hud-local-bp30-hud" class="bp-label">📜C 0</span>
+            <span id="hud-local-syringe-hud" class="syringe-label hidden">💉 0</span>
           </div>
-          <div id="hud-remote-disconnect-tag" class="disconnect-tag hidden">ДИСКОННЕКТ</div>
+          <div class="inventory-status-row remote-inv hidden" id="remote-inventory-row">
+            <span id="hud-remote-scrap-hud" class="scrap-label">⚙️ P2</span>
+            <span id="hud-remote-wp-hud" class="wp-label">🔧</span>
+            <span id="hud-remote-bp10-hud" class="bp-label">📜A</span>
+            <span id="hud-remote-bp20-hud" class="bp-label">📜B</span>
+            <span id="hud-remote-bp30-hud" class="bp-label">📜C</span>
+          </div>
         </div>
       </div>
 
-      <!-- CENTER NOTIFICATION (e.g. Round Announcement) -->
-      <div id="announcement-overlay" class="hidden">
+      <!-- CENTER NOTIFICATION (Minimal) -->
+      <div id="announcement-overlay" class="hidden minimal-announce">
         <h2 id="announcement-title" class="pulse-text-classic">РАУНД НАЧАТ</h2>
         <p id="announcement-subtitle">Уничтожьте врагов</p>
       </div>
 
-      <!-- BOTTOM HUD: Minecraft-style Hotbar -->
-      <div class="hud-bottom">
-        <!-- Workbench Context Button (Shows above hotbar when near workbench) -->
+      <!-- BOTTOM HUD: Toggleable Weapon Selector -->
+      <div class="hud-bottom-minimal">
         <div id="workbench-hud-hint" class="hud-center-action hidden">
           <div class="action-hint-badge">[E]</div>
-          <div class="action-hint-text">ОТКРЫТЬ ВЕРСТАК</div>
         </div>
 
-        <!-- Hotbar Wrapper -->
-        <div class="hotbar-wrapper">
+        <div class="weapon-toggle-container">
+          <div id="weapon-selector-popup" class="hidden">
+            <div class="hotbar-slots popup-grid">
+              <button id="select-pistol" class="hotbar-slot active" title="Клавиша 1: Пистолет"><img src="icons/wp_pistol.png" class="weapon-icon"><div class="hotbar-key">1</div></button>
+              <button id="select-shotgun" class="hotbar-slot locked" disabled title="Скрафтите Дробовик (Клавиша 2)"><img src="icons/wp_shotgun.png" class="weapon-icon"><div class="hotbar-key">2</div></button>
+              <button id="select-ar" class="hotbar-slot locked" disabled title="Скрафтите Автомат (Клавиша 3)"><img src="icons/wp_ar.png" class="weapon-icon"><div class="hotbar-key">3</div></button>
+              <button id="select-sniper" class="hotbar-slot locked" disabled title="Скрафтите Снайперку (Клавиша 4)"><img src="icons/wp_sniper.png" class="weapon-icon"><div class="hotbar-key">4</div></button>
+              <button id="select-hmg" class="hotbar-slot locked" disabled title="Скрафтите Пулемет (Клавиша 5)"><img src="icons/wp_hmg.png" class="weapon-icon"><div class="hotbar-key">5</div></button>
+              <button id="select-flamethrower" class="hotbar-slot locked" disabled title="Скрафтите Огнемет (Клавиша 6)"><img src="icons/wp_flamethrower.png" class="weapon-icon"><div class="hotbar-key">6</div></button>
+              <button id="select-tesla" class="hotbar-slot locked" disabled title="Скрафтите Теслу (Клавиша 7)"><img src="icons/wp_tesla.png" class="weapon-icon"><div class="hotbar-key">7</div></button>
+              <button id="select-crossbow" class="hotbar-slot locked" disabled title="Скрафтите Арбалет (Клавиша 8)"><img src="icons/wp_crossbow.png" class="weapon-icon"><div class="hotbar-key">8</div></button>
+            </div>
+          </div>
           
-          <!-- Inventory Info Overlay (Just above the hotbar) -->
-          <div class="hotbar-inventory-row">
-            <!-- Local Inventory -->
-            <div class="inventory-status-row local-inv">
-              <span id="hud-local-scrap-hud" class="scrap-label">⚙️ 0/60</span>
-              <span id="hud-local-wp-hud" class="wp-label">🔧 0/25</span>
-              <span id="hud-local-bp10-hud" class="bp-label">📜A 0</span>
-              <span id="hud-local-bp20-hud" class="bp-label">📜B 0</span>
-              <span id="hud-local-bp30-hud" class="bp-label">📜C 0</span>
-              <span id="hud-local-syringe-hud" class="syringe-label hidden">💉 0</span>
+          <div class="current-weapon-toggle" id="weapon-toggle-btn">
+            <img src="icons/wp_pistol.png" id="current-weapon-icon" class="weapon-icon main-icon">
+            <div class="weapon-gauge-container toggle-gauge">
+              <div id="hud-local-weapon-gauge" class="weapon-gauge-fill" style="width: 0%;"></div>
             </div>
-            
-            <!-- Weapon Name & Remote Inventory -->
-            <div class="hotbar-right-info">
-              <span id="hud-local-weapon" class="active-weapon-name">ПИСТОЛЕТ</span>
-              <div class="inventory-status-row remote-inv hidden" id="remote-inventory-row">
-                <span id="hud-remote-scrap-hud" class="scrap-label">⚙️ 0/60</span>
-                <span id="hud-remote-wp-hud" class="wp-label">🔧 0/25</span>
-                <span id="hud-remote-bp10-hud" class="bp-label">📜A 0</span>
-                <span id="hud-remote-bp20-hud" class="bp-label">📜B 0</span>
-                <span id="hud-remote-bp30-hud" class="bp-label">📜C 0</span>
-              </div>
+            <span id="hud-local-weapon" class="active-weapon-name floating-name">ПИСТОЛЕТ</span>
+          </div>
+
+          <div class="remote-weapon-info-minimal hidden" id="remote-weapon-info-row">
+            <span id="hud-remote-weapon" class="gray-text small">ОЖИДАНИЕ...</span>
+            <div class="weapon-gauge-container remote-gauge-container mini">
+              <div id="hud-remote-weapon-gauge" class="weapon-gauge-fill remote-fill" style="width: 0%;"></div>
             </div>
-          </div>
-
-          <!-- The Hotbar Slots (Military Style) -->
-          <div class="hotbar-slots">
-            <button id="select-pistol" class="hotbar-slot active" title="Клавиша 1: Пистолет"><img src="icons/wp_pistol.png" class="weapon-icon"><div class="hotbar-key">1</div></button>
-            <button id="select-shotgun" class="hotbar-slot locked" disabled title="Скрафтите Дробовик (Клавиша 2)"><img src="icons/wp_shotgun.png" class="weapon-icon"><div class="hotbar-key">2</div></button>
-            <button id="select-ar" class="hotbar-slot locked" disabled title="Скрафтите Автомат (Клавиша 3)"><img src="icons/wp_ar.png" class="weapon-icon"><div class="hotbar-key">3</div></button>
-            <button id="select-sniper" class="hotbar-slot locked" disabled title="Скрафтите Снайперку (Клавиша 4)"><img src="icons/wp_sniper.png" class="weapon-icon"><div class="hotbar-key">4</div></button>
-            <button id="select-hmg" class="hotbar-slot locked" disabled title="Скрафтите Пулемет (Клавиша 5)"><img src="icons/wp_hmg.png" class="weapon-icon"><div class="hotbar-key">5</div></button>
-            <button id="select-flamethrower" class="hotbar-slot locked" disabled title="Скрафтите Огнемет (Клавиша 6)"><img src="icons/wp_flamethrower.png" class="weapon-icon"><div class="hotbar-key">6</div></button>
-            <button id="select-tesla" class="hotbar-slot locked" disabled title="Скрафтите Теслу (Клавиша 7)"><img src="icons/wp_tesla.png" class="weapon-icon"><div class="hotbar-key">7</div></button>
-            <button id="select-crossbow" class="hotbar-slot locked" disabled title="Скрафтите Арбалет (Клавиша 8)"><img src="icons/wp_crossbow.png" class="weapon-icon"><div class="hotbar-key">8</div></button>
-          </div>
-
-          <!-- Active Weapon Gauge (Overlays the active slot or sits right below the slots) -->
-          <div class="weapon-gauge-container hotbar-gauge">
-            <div id="hud-local-weapon-gauge" class="weapon-gauge-fill" style="width: 0%;"></div>
-          </div>
-        </div>
-
-        <!-- Remote Player Weapon & Gauge (Hidden if singleplayer) -->
-        <div class="remote-weapon-info hidden" id="remote-weapon-info-row">
-          <span id="hud-remote-weapon" class="gray-text">ОЖИДАНИЕ...</span>
-          <div class="weapon-gauge-container remote-gauge-container">
-            <div id="hud-remote-weapon-gauge" class="weapon-gauge-fill remote-fill" style="width: 0%;"></div>
           </div>
         </div>
       </div>
