@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="description" content="ALTIMA: Survival - Co-op zombie shooter with crafting and RPG elements.">
+  <link rel="icon" href="data:;base64,iVBORw0KGgo=">
   <title>ALTIMA: Survival</title>
   <!-- Google Fonts for Gothic/Dark aesthetics -->
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
@@ -162,7 +164,10 @@
           </div>
           <div class="hud-icon-box round-box">
             <span class="hud-icon">🏁</span>
-            <span id="hud-round" class="hud-value hud-red">1/50</span>
+            <div style="display: flex; flex-direction: column; align-items: flex-start;">
+              <span id="hud-round-label" style="font-size: 10px; color: #ffaa00; line-height: 1;">ВОЛНА</span>
+              <span id="hud-round" class="hud-value hud-red" style="line-height: 1;">1/50</span>
+            </div>
             <div id="hud-timer" class="hud-timer hidden">15</div>
           </div>
           <div class="hud-box combo-box hidden" id="hud-combo-wrapper">
@@ -229,6 +234,8 @@
               <div id="hud-remote-weapon-gauge" class="weapon-gauge-fill remote-fill" style="width: 0%;"></div>
             </div>
           </div>
+          <!-- Hidden anchor to satisfy legacy script.js refs -->
+          <div id="hud-remote-card" class="hidden"></div>
         </div>
       </div>
 

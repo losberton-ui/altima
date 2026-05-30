@@ -1073,11 +1073,11 @@ input[type="text"]:focus {
     font-size: 1.8rem;
   }
   
-  .hud-top {
+  .hud-top-minimal {
     padding: 0 10px;
   }
   
-  .hud-bottom {
+  .hud-bottom-minimal {
     flex-direction: column;
     align-items: center;
     gap: 15px;
@@ -1089,7 +1089,7 @@ input[type="text"]:focus {
   }
   
   #mobile-controls {
-    bottom: 180px; /* shift joysticks up on small devices due to stacked player cards */
+    bottom: 180px;
     padding: 0 20px;
   }
 }
@@ -1767,7 +1767,7 @@ input[type="text"]:focus {
 .floating-hp {
   position: absolute;
   pointer-events: none;
-  z-index: 100;
+  z-index: 50;
   transform: translate(-50%, 15px); /* Center horizontally, offset below feet */
   width: 60px;
   display: flex;
@@ -1804,11 +1804,7 @@ input[type="text"]:focus {
   text-shadow: 1px 1px 1px black, -1px -1px 1px black, 1px -1px 1px black, -1px 1px 1px black;
   font-weight: bold;
 }
-.hp-bar-fill {
-  height: 100%;
-  background: #00ffaa;
-  transition: width 0.1s linear, background 0.3s ease;
-}
+
 .remote-fill {
   background: var(--neon-cyan);
 }
@@ -1912,7 +1908,7 @@ input[type="text"]:focus {
   width: 35px;
   height: 35px;
 }
-.floating-name {
+.active-weapon-name {
   position: absolute;
   top: -20px;
   font-size: 0.75rem;
@@ -1941,3 +1937,19 @@ input[type="text"]:focus {
   margin: 0;
 }
 
+@keyframes blinkClassic {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.blink-text-classic {
+  animation: blinkClassic 1s infinite;
+}
+
+@keyframes highlightBtnPulse {
+  0% { box-shadow: 0 0 5px rgba(255,170,0,0.5); border-color: rgba(255,170,0,0.5); }
+  50% { box-shadow: 0 0 15px rgba(255,170,0,1); border-color: rgba(255,170,0,1); }
+  100% { box-shadow: 0 0 5px rgba(255,170,0,0.5); border-color: rgba(255,170,0,0.5); }
+}
+.highlight-btn {
+  animation: highlightBtnPulse 2s infinite;
+}

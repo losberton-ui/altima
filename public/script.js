@@ -441,11 +441,12 @@ window.addEventListener('DOMContentLoaded', () => {
   
   window.addEventListener('mousedown', (e) => {
     if (isGameActive && !isTouchDevice && e.button === 0) {
-      // Don't shoot if clicking inside the open workbench modal
       if (!workbenchModal.classList.contains('hidden')) return;
+      e.preventDefault();
       isShooting = true;
     }
   });
+  window.addEventListener('contextmenu', (e) => e.preventDefault());
   window.addEventListener('mouseup', (e) => {
     if (e.button === 0) {
       isShooting = false;
@@ -523,7 +524,7 @@ function setupSocket() {
   });
 
   socket.on('join-error', (data) => {
-    alert(data.message);
+    showToast(data.message);
   });
 
   socket.on('player-joined', (data) => {
@@ -543,7 +544,7 @@ function setupSocket() {
       if (floatingHpRemote) floatingHpRemote.classList.add('hidden');
       document.getElementById('remote-weapon-info-row').classList.add('hidden');
       document.getElementById('remote-inventory-row').classList.add('hidden');
-      alert('Напарник покинул сектор.');
+      showToast('Напарник покинул сектор.');
     }
   });
 
@@ -874,11 +875,11 @@ function setupSocket() {
   });
 
   socket.on('craft-error', (data) => {
-    alert(data.message);
+    showToast(data.message);
   });
 
   socket.on('transfer-error', (data) => {
-    alert(data.message);
+    showToast(data.message);
   });
 
   socket.on('player-downed', (data) => {
@@ -1264,8 +1265,47 @@ function setupSocket() {
   socket.on('state-update', (state) => {
     if (!isGameActive) return;
 
-    enemiesList = state.enemies;
-    scrapList = state.scrap;
+    enemiesList = {};
+    if (state.enemiesArr) {
+      state.enemiesArr.forEach(arr => {
+        const flags = arr[7];
+        enemiesList[arr[0]] = {
+          id: arr[0],
+          type: arr[1],
+          x: arr[2],
+          z: arr[3],
+          angle: arr[4],
+          hp: arr[5],
+          maxHp: arr[6],
+          isSlowed: !!(flags & 1),
+          isEnraged: !!(flags & 2),
+          isBellyOpen: !!(flags & 4),
+          isLanded: !!(flags & 8),
+          isWarping: !!(flags & 16),
+          shieldHp: arr[8],
+          maxShieldHp: arr[9],
+          phase: arr[10]
+        };
+      });
+    } else if (state.enemies) {
+      enemiesList = state.enemies;
+    }
+
+    scrapList = {};
+    if (state.scrapArr) {
+      state.scrapArr.forEach(arr => {
+        scrapList[arr[0]] = {
+          id: arr[0],
+          type: arr[1],
+          x: arr[2],
+          z: arr[3],
+          quantity: arr[4],
+          blueprintType: arr[5]
+        };
+      });
+    } else if (state.scrap) {
+      scrapList = state.scrap;
+    }
     latestPlayersState = state.players;
     barrelsList = state.barrels || {};
 
@@ -2050,7 +2090,7 @@ function startReconnectTimer() {
     reconnectTimer.textContent = timeLeft;
     if (timeLeft <= 0) {
       clearInterval(reconnectInterval);
-      alert('Время ожидания восстановления сигнала истекло.');
+      showToast('Время ожидания восстановления сигнала истекло.');
       sessionStorage.clear();
       location.reload();
     }
@@ -2069,7 +2109,7 @@ function showStep(stepElement) {
 function enterLobby() {
   const nickname = nicknameInput.value.trim();
   if (nickname.length < 3) {
-    alert('Позывной должен быть не менее 3 символов!');
+    showToast('Позывной должен быть не менее 3 символов!');
     return;
   }
   localStorage.setItem('altima_nickname', nickname);
@@ -2086,7 +2126,7 @@ function joinRoom() {
   const code = roomCodeInput.value.trim();
   const nickname = nicknameInput.value.trim();
   if (code.length !== 4) {
-    alert('Код сектора должен содержать 4 символа!');
+    showToast('Код сектора должен содержать 4 символа!');
     return;
   }
   socket.emit('join-room', { roomCode: code, nickname });
@@ -2231,22 +2271,23 @@ function handleMouseMove(e) {
   mouseY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 }
 
+const globalRaycaster = new THREE.Raycaster();
+const globalMouseVector = new THREE.Vector2();
+const globalGroundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const globalIntersectPoint = new THREE.Vector3();
+
 // PC continuous mouse aiming raycaster called in render loop
 function updatePCAiming() {
   if (isTouchDevice || !scene || !camera || !renderer) return;
 
-  const raycaster = new THREE.Raycaster();
-  const mouseVector = new THREE.Vector2(mouseX, mouseY);
-  raycaster.setFromCamera(mouseVector, camera);
+  globalMouseVector.set(mouseX, mouseY);
+  globalRaycaster.setFromCamera(globalMouseVector, camera);
 
-  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  const intersectPoint = new THREE.Vector3();
-  
-  if (raycaster.ray.intersectPlane(groundPlane, intersectPoint)) {
+  if (globalRaycaster.ray.intersectPlane(globalGroundPlane, globalIntersectPoint)) {
     const localMesh = playersMeshes[myPlayerId];
     if (localMesh) {
-      const dx = intersectPoint.x - localMesh.position.x;
-      const dz = intersectPoint.z - localMesh.position.z;
+      const dx = globalIntersectPoint.x - localMesh.position.x;
+      const dz = globalIntersectPoint.z - localMesh.position.z;
       targetAngle = Math.atan2(dx, dz);
     }
   }
@@ -2414,10 +2455,24 @@ function init3D() {
   camera.position.set(0, 18, 12);
   camera.lookAt(0, 0, 0);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  let antialias = !('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  renderer = new THREE.WebGLRenderer({ antialias: antialias });
   
-  renderer.setSize(width, height);
+  // Handle WebGL Context Loss
+  renderer.domElement.addEventListener('webglcontextlost', function(event) {
+    event.preventDefault();
+    console.warn("WebGL Context Lost!");
+    spawnFloatingText("ВИДЕОПАМЯТЬ ПЕРЕГРУЖЕНА", window.innerWidth/2, window.innerHeight/2, 0, '#ff0000', true);
+  }, false);
+  
+  renderer.domElement.addEventListener('webglcontextrestored', function(event) {
+    console.log("WebGL Context Restored!");
+    sessionStorage.clear();
+    location.reload();
+  }, false);
+
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   gameCanvas.appendChild(renderer.domElement);
@@ -2688,7 +2743,7 @@ function spawnFloatingText(text, x, y, z, colorHex = '#ff0055') {
   div.style.transition = 'top 0.6s ease-out, opacity 0.6s ease-in';
   div.style.opacity = '1';
   
-  document.body.appendChild(div);
+  document.getElementById('game-container').appendChild(div);
 
   // Trigger CSS transition next frame
   requestAnimationFrame(() => {
@@ -2990,13 +3045,12 @@ function animate() {
   // 4. Sync dynamic models
   syncEnemiesRender();
   syncScrapRender();
-  syncBarrels(barrelsList);
-
   // Combo decay
   if (comboDecayTimer > 0) {
     comboDecayTimer -= dt;
     if (comboDecayTimer <= 0) {
-      document.getElementById('hud-combo-wrapper').classList.add('hidden');
+      const comboWrapper = document.getElementById('hud-combo-wrapper');
+      if(comboWrapper) comboWrapper.classList.add('hidden');
     }
   }
 
@@ -3016,8 +3070,10 @@ function animate() {
     const timeLeft = vfx.endTime - nowVfx;
     if (timeLeft <= 0) {
       scene.remove(vfx.mesh);
-      if (vfx.mesh.geometry) vfx.mesh.geometry.dispose();
-      if (vfx.mesh.material) vfx.mesh.material.dispose();
+      if (vfx.type === 'tesla' || vfx.type === 'explosion') {
+        if (vfx.mesh.geometry) vfx.mesh.geometry.dispose();
+        if (vfx.mesh.material) vfx.mesh.material.dispose();
+      }
       return false;
     }
     
@@ -3038,9 +3094,8 @@ function animate() {
   });
 
   // Update flame particles
-  const nowFlame = Date.now();
   flameParticles = flameParticles.filter(p => {
-    const timeLeft = p.endTime - nowFlame;
+    const timeLeft = p.endTime - nowVfx;
     if (timeLeft <= 0) {
       scene.remove(p.mesh);
       if (p.mesh.geometry) p.mesh.geometry.dispose();
@@ -3060,13 +3115,10 @@ function animate() {
   });
 
   // Update blood particles
-  const nowBlood = Date.now();
   bloodParticles = bloodParticles.filter(p => {
-    const timeLeft = p.endTime - nowBlood;
+    const timeLeft = p.endTime - nowVfx;
     if (timeLeft <= 0) {
       scene.remove(p.mesh);
-      if (p.mesh.geometry) p.mesh.geometry.dispose();
-      if (p.mesh.material) p.mesh.material.dispose();
       return false;
     }
     
@@ -3089,13 +3141,10 @@ function animate() {
   });
 
   // Update gib particles
-  const nowGib = Date.now();
   gibParticles = gibParticles.filter(p => {
-    const timeLeft = p.endTime - nowGib;
+    const timeLeft = p.endTime - nowVfx;
     if (timeLeft <= 0) {
       scene.remove(p.mesh);
-      if (p.mesh.geometry) p.mesh.geometry.dispose();
-      if (p.mesh.material) p.mesh.material.dispose();
       return false;
     }
     
@@ -3466,10 +3515,12 @@ function syncEnemiesRender() {
       }
       mesh.position.y += (targetY - mesh.position.y) * 0.1;
 
-      let diff = sEnemy.angle - mesh.rotation.y;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      mesh.rotation.y += diff * 0.18;
+      if (sEnemy.type !== 'boss_razlom') {
+        let diff = sEnemy.angle - mesh.rotation.y;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        mesh.rotation.y += diff * 0.18;
+      }
 
       // Procedural animation and states for Group meshes
       const shield = mesh.getObjectByName('shield');
@@ -4070,6 +4121,7 @@ function syncBarrels(barrelsState) {
 }
 
 function disposeScene() {
+  window.removeEventListener('resize', onWindowResize);
   if (renderer) {
     renderer.dispose();
     if (renderer.domElement && typeof gameCanvas !== 'undefined' && gameCanvas && gameCanvas.contains(renderer.domElement)) {
@@ -4118,4 +4170,28 @@ function disposeScene() {
   camera = null;
   renderer = null;
   clock = null;
+}
+
+function showToast(msg) {
+  const toast = document.createElement('div');
+  toast.textContent = msg;
+  toast.className = 'toast-message';
+  toast.style.position = 'fixed';
+  toast.style.top = '20px';
+  toast.style.left = '50%';
+  toast.style.transform = 'translateX(-50%)';
+  toast.style.backgroundColor = 'rgba(255, 0, 50, 0.9)';
+  toast.style.color = 'white';
+  toast.style.padding = '10px 20px';
+  toast.style.borderRadius = '5px';
+  toast.style.zIndex = '9999';
+  toast.style.fontFamily = 'monospace';
+  toast.style.fontWeight = 'bold';
+  toast.style.boxShadow = '0 0 10px rgba(255, 0, 50, 0.5)';
+  toast.style.transition = 'opacity 0.5s ease-out';
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 500);
+  }, 3000);
 }
