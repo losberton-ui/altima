@@ -69,7 +69,7 @@ function resolveBoxCollision(entity, box, radius) {
   const minX = box.x - 0.75 - radius;
   const maxX = box.x + 0.75 + radius;
   const minZ = box.z - 0.3 - radius;
-  const maxZ = box.z + 0.3 - radius;
+  const maxZ = box.z + 0.3 + radius;
   if (entity.x > minX && entity.x < maxX && entity.z > minZ && entity.z < maxZ) {
     const penLeft = entity.x - minX;
     const penRight = maxX - entity.x;
@@ -252,7 +252,7 @@ function handleCrateDeath(activeRoom, crateId) {
     for (let k = 0; k < 5; k++) {
       const scrapId = 'scrap_' + (++activeRoom.scrapIdCounter);
       activeRoom.scrap[scrapId] = {
-        id: scrapId,
+        id: scrapId, type: 'scrap',
         x: crate.x + (Math.random() - 0.5) * 1.0,
         z: crate.z + (Math.random() - 0.5) * 1.0,
         quantity: 1
@@ -429,7 +429,7 @@ function handleEnemyDeath(activeRoom, enemyId, owner, killerWeapon = null) {
     for (let k = 0; k < count; k++) {
       const scrapId = 'scrap_' + (++activeRoom.scrapIdCounter);
       activeRoom.scrap[scrapId] = {
-        id: scrapId,
+        id: scrapId, type: 'scrap',
         x: enemy.x + (Math.random() - 0.5) * 1.0,
         z: enemy.z + (Math.random() - 0.5) * 1.0,
         quantity: 1
@@ -440,7 +440,7 @@ function handleEnemyDeath(activeRoom, enemyId, owner, killerWeapon = null) {
     for (let k = 0; k < count; k++) {
       const scrapId = 'scrap_' + (++activeRoom.scrapIdCounter);
       activeRoom.scrap[scrapId] = {
-        id: scrapId,
+        id: scrapId, type: 'scrap',
         x: enemy.x + (Math.random() - 0.5) * 1.0,
         z: enemy.z + (Math.random() - 0.5) * 1.0,
         quantity: 1
@@ -451,7 +451,7 @@ function handleEnemyDeath(activeRoom, enemyId, owner, killerWeapon = null) {
     for (let k = 0; k < count; k++) {
       const scrapId = 'scrap_' + (++activeRoom.scrapIdCounter);
       activeRoom.scrap[scrapId] = {
-        id: scrapId,
+        id: scrapId, type: 'scrap',
         x: enemy.x + (Math.random() - 0.5) * 1.0,
         z: enemy.z + (Math.random() - 0.5) * 1.0,
         quantity: 1
@@ -839,9 +839,10 @@ function startGameLoop(roomCode) {
               p.downedTimeLeft = 0;
               p.reviveProgress = 0;
               
-              // Select 3 random perks
-              let shuffled = PERKS.sort(() => 0.5 - Math.random());
+              if (PERKS.length > 0) {
+              let shuffled = [...PERKS].sort(() => 0.5 - Math.random());
               draftChoices[pId] = shuffled.slice(0, 3);
+            }
             }
           });
 
@@ -957,6 +958,18 @@ function startGameLoop(roomCode) {
           if (p.craftTimeLeft <= 0) {
             p.isCrafting = false;
             
+            // Deduct resources on completion
+            p.scrap = Math.max(0, p.scrap - (p.craftScrapCost || 0));
+            p.wp = Math.max(0, p.wp - (p.craftWpCost || 0));
+            let remainingBpCost = p.craftBpCost || 0;
+            while(remainingBpCost > 0) {
+              if (p.bp10 > 0) { p.bp10--; remainingBpCost--; }
+              else if (p.bp20 > 0) { p.bp20--; remainingBpCost--; }
+              else if (p.bp30 > 0) { p.bp30--; remainingBpCost--; }
+              else break;
+            }
+            
+
             if (!p.weapons[p.craftWeapon]) {
               p.weapons[p.craftWeapon] = { level: 1 };
             } else {
@@ -1046,14 +1059,14 @@ function startGameLoop(roomCode) {
           p.x = tempEntity.x;
           p.z = tempEntity.z;
 
-          // Passive regeneration (regenRate is HP/sec)
-          if (p.regenRate && p.hp > 0 && !p.isDowned) {
-            p.hp = Math.min(p.maxHp + (p.maxHpBonus || 0), p.hp + p.regenRate * (TICK_TIME / 1000));
-          }
-
           const margin = 0.5;
           p.x = Math.max(-ARENA_WIDTH / 2 + margin, Math.min(ARENA_WIDTH / 2 - margin, p.x));
           p.z = Math.max(-ARENA_DEPTH / 2 + margin, Math.min(ARENA_DEPTH / 2 - margin, p.z));
+        }
+
+        // Passive regeneration (regenRate is HP/sec)
+        if (p.regenRate && p.hp > 0 && !p.isDowned) {
+          p.hp = Math.min(p.maxHp + (p.maxHpBonus || 0), p.hp + p.regenRate * (TICK_TIME / 1000));
         }
 
         // F. Handle Weapon Heat Decays
@@ -1336,7 +1349,7 @@ function startGameLoop(roomCode) {
                         cover.hp -= 2.0;
                         if (cover.hp <= 0) {
                           delete activeRoom.covers[coverId];
-                          io.to(roomCode).emit('cover-destroyed', { coverId });
+                          io.to(roomCode).emit('cover-destroyed', { coverId, x: cover.x, z: cover.z });
                         }
                       }
                     }
@@ -1510,12 +1523,12 @@ function startGameLoop(roomCode) {
               cover.hp -= bullet.damage;
               if (cover.hp <= 0) {
                 delete activeRoom.covers[coverId];
-                io.to(roomCode).emit('cover-destroyed', { coverId });
+                io.to(roomCode).emit('cover-destroyed', { coverId, x: cover.x, z: cover.z });
               }
               if (bullet.type === 'crossbow') {
                 spawnPoisonPuddle(activeRoom, bullet.x, bullet.z, bullet.ownerId);
               }
-              activeRoom.bullets.splice(bIdx, 1);
+              bullet.dead = true;
               return;
             }
           }
@@ -1537,7 +1550,7 @@ function startGameLoop(roomCode) {
               if (bullet.type === 'crossbow') {
                 spawnPoisonPuddle(activeRoom, bullet.x, bullet.z, bullet.ownerId);
               }
-              activeRoom.bullets.splice(bIdx, 1);
+              bullet.dead = true;
               return;
             }
           }
@@ -1558,14 +1571,14 @@ function startGameLoop(roomCode) {
               if (bullet.type === 'crossbow') {
                 spawnPoisonPuddle(activeRoom, bullet.x, bullet.z, bullet.ownerId);
               }
-              activeRoom.bullets.splice(bIdx, 1);
+              bullet.dead = true;
               return;
             }
           }
         }
       });
 
-      activeRoom.bullets = activeRoom.bullets.filter(b => b.distTraveled < b.range);
+      activeRoom.bullets = activeRoom.bullets.filter(b => !b.dead && b.distTraveled < b.range);
 
       // Update poison puddles
       if (activeRoom.puddles) {
@@ -1601,7 +1614,7 @@ function startGameLoop(roomCode) {
             if (!player || player.disconnected || player.hp <= 0 || player.isDowned) return;
             const dist = Math.hypot(player.x - puddle.x, player.z - puddle.z);
             if (dist <= puddle.radius) {
-              const dmg = 15 * dt; // 15 dmg/s
+              const dmg = (puddle.damage || 8) * dt;
               applyPlayerDamage(activeRoom, pId, dmg);
             }
           });
@@ -1719,6 +1732,18 @@ function startGameLoop(roomCode) {
       // --- 6. MUTANTS AI BEHAVIOR & FIRING LOOP ---
       if (activeRoom.corpses) {
         activeRoom.corpses = activeRoom.corpses.filter(c => Date.now() - c.time < 8000);
+      }
+
+      // Build Spatial Grid for enemies
+      const enemyGrid = {};
+      const CELL_SIZE = 2.0;
+      for (const eId in activeRoom.enemies) {
+        const e = activeRoom.enemies[eId];
+        const cx = Math.floor(e.x / CELL_SIZE);
+        const cz = Math.floor(e.z / CELL_SIZE);
+        const cellId = cx + '_' + cz;
+        if (!enemyGrid[cellId]) enemyGrid[cellId] = [];
+        enemyGrid[cellId].push(e);
       }
 
       for (const enemyId in activeRoom.enemies) {
@@ -2044,7 +2069,7 @@ function startGameLoop(roomCode) {
               }
             }
             // Amplify damage in phase 3
-            enemy.damage = 40;
+            if (enemy.damage !== 40) enemy.damage = 40;
           }
         }
 
@@ -2178,7 +2203,7 @@ function startGameLoop(roomCode) {
                   cover.hp -= enemy.damage || 5;
                   if (cover.hp <= 0) {
                     delete activeRoom.covers[coverId];
-                    io.to(roomCode).emit('cover-destroyed', { coverId });
+                    io.to(roomCode).emit('cover-destroyed', { coverId, x: cover.x, z: cover.z });
                   }
                 }
               }
@@ -2202,28 +2227,38 @@ function startGameLoop(roomCode) {
           enemy.x = tempEntity.x;
           enemy.z = tempEntity.z;
 
-          // Soft collision with other enemies to prevent stacking
-          for (const otherId in activeRoom.enemies) {
-            if (otherId === enemyId) continue;
-            const other = activeRoom.enemies[otherId];
-            
-            let r1 = (enemy.type === 'tank' || enemy.type.startsWith('boss_')) ? 0.8 : 0.45;
-            let r2 = (other.type === 'tank' || other.type.startsWith('boss_')) ? 0.8 : 0.45;
-            const minDist = r1 + r2;
-            
-            const edx = enemy.x - other.x;
-            const edz = enemy.z - other.z;
-            const distSq = edx * edx + edz * edz;
-            
-            if (distSq > 0 && distSq < minDist * minDist) {
-              const dist = Math.sqrt(distSq);
-              const overlap = minDist - dist;
-              // Resolve overlap smoothly
-              const pushStrength = 0.15; 
+          // Soft collision with other enemies (Spatial Grid)
+          const cx = Math.floor(enemy.x / CELL_SIZE);
+          const cz = Math.floor(enemy.z / CELL_SIZE);
+          
+          for (let dx = -1; dx <= 1; dx++) {
+            for (let dz = -1; dz <= 1; dz++) {
+              const cellId = (cx + dx) + '_' + (cz + dz);
+              const cellEnemies = enemyGrid[cellId];
+              if (!cellEnemies) continue;
               
-              if (enemy.type !== 'boss_drone' || !enemy.isLanded) {
-                enemy.x += (edx / dist) * overlap * pushStrength;
-                enemy.z += (edz / dist) * overlap * pushStrength;
+              for (let i = 0; i < cellEnemies.length; i++) {
+                const other = cellEnemies[i];
+                if (other.id === enemyId) continue;
+                
+                let r1 = (enemy.type === 'tank' || enemy.type.startsWith('boss_')) ? 0.8 : 0.45;
+                let r2 = (other.type === 'tank' || other.type.startsWith('boss_')) ? 0.8 : 0.45;
+                const minDist = r1 + r2;
+                
+                const edx = enemy.x - other.x;
+                const edz = enemy.z - other.z;
+                const distSq = edx * edx + edz * edz;
+                
+                if (distSq > 0 && distSq < minDist * minDist) {
+                  const dist = Math.sqrt(distSq);
+                  const overlap = minDist - dist;
+                  const pushStrength = 0.15; 
+                  
+                  if (enemy.type !== 'boss_drone' || !enemy.isLanded) {
+                    enemy.x += (edx / dist) * overlap * pushStrength;
+                    enemy.z += (edz / dist) * overlap * pushStrength;
+                  }
+                }
               }
             }
           }
@@ -2300,9 +2335,10 @@ function startGameLoop(roomCode) {
             // Shotgun distance falloff logic
             if (bullet.type === 'shotgun') {
               const distFired = Math.hypot(bullet.x - bullet.firedX, bullet.z - bullet.firedZ);
-              if (distFired <= 3.0) finalDmg = bullet.damage; // 8
-              else if (distFired <= 5.0) finalDmg = bullet.damage * 0.5; // 4
-              else finalDmg = bullet.damage * 0.25; // 2
+              let falloff = 1.0;
+              if (distFired > 3.0 && distFired <= 5.0) falloff = 0.5;
+              else if (distFired > 5.0) falloff = 0.25;
+              finalDmg = finalDmg * falloff;
 
               // Knockback: push back by 0.5m
               enemy.x += Math.sin(bullet.pelletAngle) * 0.5;
@@ -2418,20 +2454,20 @@ function startGameLoop(roomCode) {
               bullet.hitEnemies.push(enemyId);
               const pierceCap = wpLvl >= 2 ? 5 : 3;
               if (bullet.hitEnemies.length >= pierceCap) {
-                activeRoom.bullets.splice(bIdx, 1);
+                bullet.dead = true;
               }
             } else if (bullet.type === 'pistol') {
-              activeRoom.bullets.splice(bIdx, 1);
+              bullet.dead = true;
             } else if (bullet.type === 'shotgun') {
               if (wpLvl >= 4) {
                 if (!bullet.hitEnemies) bullet.hitEnemies = [];
                 bullet.hitEnemies.push(enemyId);
                 // "Пробивает насквозь", let's say up to 5
                 if (bullet.hitEnemies.length >= 5) {
-                  activeRoom.bullets.splice(bIdx, 1);
+                  bullet.dead = true;
                 }
               } else {
-                activeRoom.bullets.splice(bIdx, 1);
+                bullet.dead = true;
               }
             } else if (bullet.type === 'crossbow') {
               // Crossbow has infinite pierce? Actually, let's just make it pierce if level 5, else 1
@@ -2439,19 +2475,21 @@ function startGameLoop(roomCode) {
                 if (!bullet.hitEnemies) bullet.hitEnemies = [];
                 bullet.hitEnemies.push(enemyId);
                 if (bullet.hitEnemies.length >= 5) {
-                  activeRoom.bullets.splice(bIdx, 1);
+                  bullet.dead = true;
                 }
               } else {
-                activeRoom.bullets.splice(bIdx, 1);
+                bullet.dead = true;
               }
             } else {
-              activeRoom.bullets.splice(bIdx, 1);
+              bullet.dead = true;
             }
             break;
           }
         }
       });
     }
+    
+    activeRoom.bullets = activeRoom.bullets.filter(b => !b.dead);
 
     // Broadcast sync payload
     const playersState = {};
@@ -2492,38 +2530,42 @@ function startGameLoop(roomCode) {
       };
     }
 
-    const enemiesState = {};
+    const enemiesArr = [];
     for (const eId in activeRoom.enemies) {
       const e = activeRoom.enemies[eId];
-      enemiesState[eId] = {
-        id: e.id,
-        type: e.type,
-        x: e.x,
-        z: e.z,
-        angle: e.angle,
-        hp: e.hp,
-        maxHp: e.maxHp,
-        isSlowed: now < e.slowExpires,
-        isEnraged: e.isEnraged || false,
-        shieldHp: e.shieldHp,
-        maxShieldHp: e.maxShieldHp,
-        isBellyOpen: e.isBellyOpen || false,
-        isLanded: e.isLanded || false,
-        phase: e.phase || 1,
-        isWarping: e.isWarping || false
-      };
+      let flags = 0;
+      if (now < e.slowExpires) flags |= 1;
+      if (e.isEnraged) flags |= 2;
+      if (e.isBellyOpen) flags |= 4;
+      if (e.isLanded) flags |= 8;
+      if (e.isWarping) flags |= 16;
+      
+      enemiesArr.push([
+        e.id,
+        e.type,
+        Number(e.x.toFixed(2)),
+        Number(e.z.toFixed(2)),
+        Number(e.angle.toFixed(2)),
+        Math.floor(e.hp),
+        Math.floor(e.maxHp),
+        flags,
+        Math.floor(e.shieldHp || 0),
+        Math.floor(e.maxShieldHp || 0),
+        e.phase || 1
+      ]);
     }
 
-    const scrapState = {};
+    const scrapArr = [];
     for (const sId in activeRoom.scrap) {
       const s = activeRoom.scrap[sId];
-      scrapState[sId] = {
-        id: s.id,
-        x: s.x,
-        z: s.z,
-        type: s.type || 'scrap',
-        blueprintType: s.blueprintType
-      };
+      scrapArr.push([
+        s.id,
+        s.type || 'scrap',
+        Number(s.x.toFixed(2)),
+        Number(s.z.toFixed(2)),
+        s.quantity || 1,
+        s.blueprintType || ''
+      ]);
     }
 
     const projectilesState = activeRoom.projectiles.map(p => ({
@@ -2597,8 +2639,8 @@ function startGameLoop(roomCode) {
       roundState: activeRoom.roundState,
       roundTimer: activeRoom.roundTimer,
       score: activeRoom.score,
-      enemies: enemiesState,
-      scrap: scrapState,
+      enemiesArr: enemiesArr,
+      scrapArr: scrapArr,
       projectiles: projectilesState,
       bullets: activeRoom.bullets.map(b => ({ x: b.x, z: b.z, vx: b.vx, vz: b.vz, type: b.type })),
       covers: coversState,
@@ -2764,7 +2806,7 @@ io.on('connection', (socket) => {
           maxHpBonus: 0,
           regenLevel: 0,
           speedBonus: 0,
-          armorMult: 0,
+          armorMult: 1.0,
           magnetBonus: 0,
           scavengerChance: 0,
           cooldownMult: 0,
@@ -3046,6 +3088,23 @@ io.on('connection', (socket) => {
       p.revives = 0;
       p.lastShotTime = 0;
       p.shootingIntent = false;
+
+      // RPG Stats
+      p.maxHpBonus = 0;
+      p.regenLevel = 0;
+      p.speedBonus = 0;
+      p.armorMult = 1.0;
+      p.magnetBonus = 0;
+      p.scavengerChance = 0;
+      p.cooldownMult = 0;
+      p.damageMult = 0;
+      p.overclockingMult = 0;
+      p.vampirismChance = 0;
+      p.adrenalineSpeed = 0;
+      p.glassCannon = false;
+      p.berserker = false;
+      p.adrenaline = false;
+      p.autophagyPenalty = 0;
     }
 
     room.gameStarted = true;
@@ -3062,9 +3121,23 @@ io.on('connection', (socket) => {
     const player = room.players[socket.playerId];
     if (!player || player.disconnected) return;
 
+    const now = Date.now();
+    if (!player.lastInputTime) player.lastInputTime = now;
+    if (!player.inputSpamCount) player.inputSpamCount = 0;
+    
+    if (now - player.lastInputTime < 1000) {
+      player.inputSpamCount++;
+      if (player.inputSpamCount > 120) return; // Drop spam packets (max 120/sec)
+    } else {
+      player.lastInputTime = now;
+      player.inputSpamCount = 1;
+    }
+
     player.xInput = data.xInput;
     player.zInput = data.zInput;
-    player.angle = data.angle;
+    if (data.angle !== undefined && !isNaN(data.angle)) {
+      player.angle = Number(data.angle);
+    }
     player.lastInputSeq = data.seq;
     
     // Block shooting intent if downed
@@ -3110,7 +3183,7 @@ io.on('connection', (socket) => {
       player.regenRate += 1.0;
     } else if (perkId === 'overclocking') {
       player.dmgMult += 0.10;
-      player.overclockingMult = 1.15;
+      player.overclockingMult += 0.15;
     } else if (perkId === 'tank') {
       player.maxHpBonus += 15;
       player.hp += 15;
@@ -3121,7 +3194,7 @@ io.on('connection', (socket) => {
     } else if (perkId === 'engineering') {
       player.craftSpeedMult += 0.20;
     } else if (perkId === 'adrenaline') {
-      player.adrenalineSpeed = 1.15;
+      player.adrenalineSpeed += 0.15;
     } else if (perkId === 'sprinter') {
       player.speedMult += 0.05;
     } else if (perkId === 'backup_battery') {
@@ -3244,16 +3317,9 @@ io.on('connection', (socket) => {
       return socket.emit('craft-error', { message: 'Недостаточно материалов для сборки/улучшения.' });
     }
 
-    player.scrap -= scrapCost;
-    player.wp -= wpCost;
-    
-    // Deduct BP from anywhere (simplification for RPG update to avoid strict BP matching)
-    let remainingBpCost = bpCost;
-    while(remainingBpCost > 0) {
-      if (player.bp10 > 0) { player.bp10--; remainingBpCost--; }
-      else if (player.bp20 > 0) { player.bp20--; remainingBpCost--; }
-      else if (player.bp30 > 0) { player.bp30--; remainingBpCost--; }
-    }
+    player.craftScrapCost = scrapCost;
+    player.craftWpCost = wpCost;
+    player.craftBpCost = bpCost;
 
     player.isCrafting = true;
     player.craftWeapon = weaponName;
